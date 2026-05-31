@@ -5,7 +5,7 @@ description = "Webhook bridge that connects Nextcloud Talk bots to Hermes Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [{name = "Robert Mann / Deuce Edison"}]
+authors = [{name = "Robert Mann"}]
 keywords = ["nextcloud", "talk", "hermes-agent", "chatbot", "bridge"]
 classifiers = [
   "Programming Language :: Python :: 3",
