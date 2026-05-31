@@ -1,0 +1,126 @@
+# Nextcloud Talk Hermes Bridge
+
+A small webhook bridge that connects a Nextcloud Talk bot to [Hermes Agent](https://hermes-agent.nousresearch.com/docs).
+
+It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with a configurable profile/persona/toolset, and posts the final answer back to the Talk room with signed bot messages.
+
+## Features
+
+- Verifies Nextcloud Talk webhook signatures.
+- Posts signed bot replies back to the same Talk room.
+- Ignores bot-originated messages to avoid reply loops.
+- Preserves short-term per-room context for follow-ups like “make it shorter” or “continue that.”
+- Passes uploaded-file metadata from Talk events into the Hermes prompt.
+- Supports Hermes profiles, skills, toolsets, and source labels.
+- Supports long-running jobs with background wait + heartbeat messages.
+- Uses only Python standard library at runtime.
+
+## Requirements
+
+- Python 3.11+
+- A working Hermes Agent CLI (`hermes`)
+- A Nextcloud server with the Talk app and Talk bot webhook support
+- A public or reverse-proxied HTTPS endpoint pointing to this bridge's `/hook` path
+
+## Install
+
+```bash
+git clone https://github.com/YOUR-USER/nextcloud-talk-hermes-bridge.git
+cd nextcloud-talk-hermes-bridge
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -e .
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+TALK_BOT_SECRET=replace-with-nextcloud-talk-bot-secret
+NEXTCLOUD_URL=https://nextcloud.example.com
+TALK_BRIDGE_PORT=8788
+HERMES_BIN=/path/to/hermes
+HERMES_PROFILE=default
+HERMES_HOME_DIR=/home/your-user
+ASSISTANT_NAME=Hermes Talk Assistant
+ASSISTANT_ROLE=You are a helpful private assistant inside Nextcloud Talk.
+```
+
+Run locally:
+
+```bash
+set -a
+. ./.env
+set +a
+python -m nextcloud_talk_hermes_bridge.bridge
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8788/health
+# ok
+```
+
+## systemd user service
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/nextcloud-talk-hermes-bridge.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now nextcloud-talk-hermes-bridge.service
+systemctl --user status nextcloud-talk-hermes-bridge.service
+```
+
+The sample unit assumes the repo lives at:
+
+```text
+~/nextcloud-talk-hermes-bridge
+```
+
+Adjust `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` if you install elsewhere.
+
+## Nextcloud Talk bot setup
+
+Exact admin screens vary by Nextcloud/Talk version, but the bridge expects:
+
+- Webhook URL: `https://your-public-host.example.com/hook`
+- Shared secret: same value as `TALK_BOT_SECRET`
+- Bot URL base / Nextcloud URL: same base as `NEXTCLOUD_URL`, for example `https://nextcloud.example.com`
+
+The bridge handles:
+
+- Incoming webhook signature headers:
+  - `X-Nextcloud-Talk-Random`
+  - `X-Nextcloud-Talk-Signature`
+- Outgoing bot message signature headers:
+  - `X-Nextcloud-Talk-Bot-Random`
+  - `X-Nextcloud-Talk-Bot-Signature`
+
+## Important configuration
+
+- `HERMES_PROFILE`: Hermes profile to run, such as `default` or a dedicated assistant profile.
+- `HERMES_TOOLSETS`: comma-separated toolsets exposed to Hermes.
+- `HERMES_SKILLS`: comma-separated skills to pre-load.
+- `HERMES_YOLO`: `1` enables non-interactive tool execution. Set to `0` if you want a safer/default Hermes mode.
+- `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
+- `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
+- `TALK_CONTEXT_DIR`: where room context JSONL files are stored.
+
+## Security notes
+
+- Do **not** commit `.env` or log files.
+- Use a strong random `TALK_BOT_SECRET`.
+- Run this bridge as a limited user.
+- Be careful with `HERMES_YOLO=1` and broad toolsets. That is powerful and should only be used where the Hermes profile and host are trusted.
+- Put the bridge behind HTTPS.
+- Keep separate assistants/users in separate Hermes profiles and separate bridge instances.
+
+## Development checks
+
+```bash
+python -m compileall nextcloud_talk_hermes_bridge
+python -m nextcloud_talk_hermes_bridge.bridge
+```
+
+The second command needs environment variables and will start the server.

@@ -1,0 +1,21 @@
+[project]
+name = "nextcloud-talk-hermes-bridge"
+version = "0.1.0"
+description = "Webhook bridge that connects Nextcloud Talk bots to Hermes Agent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Robert Mann / Deuce Edison"}]
+keywords = ["nextcloud", "talk", "hermes-agent", "chatbot", "bridge"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+]
+dependencies = []
+
+[project.scripts]
+nextcloud-talk-hermes-bridge = "nextcloud_talk_hermes_bridge.bridge:main"
+
+[tool.ruff]
+line-length = 120

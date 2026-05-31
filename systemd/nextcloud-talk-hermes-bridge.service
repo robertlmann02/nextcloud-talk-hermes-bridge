@@ -1,0 +1,15 @@
+[Unit]
+Description=Nextcloud Talk Hermes Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/nextcloud-talk-hermes-bridge
+EnvironmentFile=%h/nextcloud-talk-hermes-bridge/.env
+ExecStart=%h/nextcloud-talk-hermes-bridge/.venv/bin/python -m nextcloud_talk_hermes_bridge.bridge
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
