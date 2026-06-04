@@ -22,7 +22,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .talk_context import append_turn, build_context_packet
+from .talk_context import append_turn, build_context_packet, sync_local_memory_message
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 SECRET = os.environ["TALK_BOT_SECRET"]
@@ -298,10 +298,13 @@ def post(token: str, message: str, reply_to: int = 0) -> int | None:
 
 def handle(ev: dict) -> None:
     log(f"message from {ev['actor_name']} token={ev['token']} id={ev['message_id']}: {ev['message'][:250]!r}")
+    namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
     append_turn(ev["token"], "user", ev["actor_name"], ev["message"], ev["message_id"], app_name=APP_NAME)
-    context_packet = build_context_packet(ev["token"], APP_NAME, ASSISTANT_NAME)
+    sync_local_memory_message(ev["token"], "user", ev["actor_name"], ev["message"], namespace=namespace, message_id=ev["message_id"])
+    context_packet = build_context_packet(ev["token"], APP_NAME, ASSISTANT_NAME, current_message=ev["message"], namespace=namespace)
     reply = ask(ev["message"], ev["actor_name"], context_packet, ev["token"], ev["message_id"])
     append_turn(ev["token"], "assistant", ASSISTANT_NAME, reply, 0, app_name=APP_NAME)
+    sync_local_memory_message(ev["token"], "assistant", ASSISTANT_NAME, reply, namespace=namespace)
     post(ev["token"], reply, ev["message_id"])
 
 

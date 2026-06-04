@@ -10,6 +10,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 - Posts signed bot replies back to the same Talk room.
 - Ignores bot-originated messages to avoid reply loops.
 - Preserves short-term per-room context for follow-ups like “make it shorter” or “continue that.”
+- Optionally enriches prompts from a local SQLite memory service: workspace, peers, sessions, messages, conclusions, and representation cards.
 - Passes uploaded-file metadata from Talk events into the Hermes prompt.
 - Supports Hermes profiles, skills, toolsets, and source labels.
 - Supports long-running jobs with background wait + heartbeat messages.
@@ -25,7 +26,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 ## Install
 
 ```bash
-git clone https://github.com/YOUR-USER/nextcloud-talk-hermes-bridge.git
+git clone https://github.com/robertlmann02/nextcloud-talk-hermes-bridge.git
 cd nextcloud-talk-hermes-bridge
 python3 -m venv .venv
 . .venv/bin/activate
@@ -106,6 +107,23 @@ The bridge handles:
 - `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
 - `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
 - `TALK_CONTEXT_DIR`: where room context JSONL files are stored.
+- `TALK_LOCAL_MEMORY_CONTEXT`: `1`/`0` toggle for local SQLite memory context injection. Defaults to `1`.
+- `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `robert`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
+- `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.
+
+## Local SQLite memory service
+
+The bridge includes an optional local SQLite memory service for deployments that need better follow-up handling than short-term room history alone.
+
+When `TALK_LOCAL_MEMORY_CONTEXT=1`, the bridge will:
+
+- create/use a local SQLite database at `TALK_MEMORY_DB_PATH` or `$HERMES_HOME/local-memory/memory.sqlite3`;
+- keep memory separated by `TALK_MEMORY_NAMESPACE`;
+- index Talk/Hermes messages with FTS5;
+- read compatible durable memories, conclusions, and representation cards when building the prompt context;
+- avoid mixing namespaces across assistants, users, or bridge instances.
+
+This is local-only storage. It does not require a cloud memory provider.
 
 ## Security notes
 

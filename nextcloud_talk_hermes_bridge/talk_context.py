@@ -8,6 +8,7 @@ Hermes bridge invocations can understand follow-ups like "make it shorter" or
 import json
 import os
 import re
+import sqlite3
 import time
 from pathlib import Path
 
@@ -113,7 +114,14 @@ def _looks_like_followup(text: str) -> bool:
     return any(m in t for m in markers)
 
 
-def build_context_packet(token: str, app_name: str, assistant_name: str, max_turns: int = DEFAULT_CONTEXT_TURNS) -> str:
+def build_context_packet(
+    token: str,
+    app_name: str,
+    assistant_name: str,
+    max_turns: int = DEFAULT_CONTEXT_TURNS,
+    current_message: str = "",
+    namespace: str | None = None,
+) -> str:
     history_path, working_path = _paths(token, app_name)
     history = _read_history(history_path, max_turns)
     try:
@@ -150,7 +158,208 @@ def build_context_packet(token: str, app_name: str, assistant_name: str, max_tur
             lines.append(f"[{tm}] {role}/{actor}#{mid}: {msg}")
     else:
         lines.append("- No prior turns recorded yet.")
+    memory_packet = build_local_memory_context(current_message or working.get("last_user_message", ""), token, namespace=namespace)
+    if memory_packet:
+        lines.extend(["", memory_packet])
     packet = "\n".join(lines).strip()
     if len(packet) > MAX_PACKET_CHARS:
         packet = packet[-MAX_PACKET_CHARS:]
     return packet
+
+
+def _memory_enabled() -> bool:
+    return os.environ.get("TALK_LOCAL_MEMORY_CONTEXT", "1").lower() in {"1", "true", "yes", "on"}
+
+
+def _memory_namespace(namespace: str | None = None) -> str:
+    raw = namespace or os.environ.get("TALK_MEMORY_NAMESPACE") or os.environ.get("HERMES_PROFILE") or "default"
+    ns = re.sub(r"[^a-z0-9_.-]+", "_", raw.strip().lower().replace("-", "_"))[:80]
+    return ns or "default"
+
+
+def _memory_db_path() -> Path:
+    raw = os.environ.get("TALK_MEMORY_DB_PATH")
+    if raw:
+        return Path(raw).expanduser()
+    hermes_home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes").expanduser()
+    return hermes_home / "local-memory" / "memory.sqlite3"
+
+
+def _safe_handle(text: str) -> str:
+    handle = re.sub(r"[^a-z0-9_.-]+", "_", (text or "user").strip().lower())[:80]
+    return handle or "user"
+
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _fts_query(query: str) -> str:
+    tokens = re.findall(r"[\w]+", (query or "").lower())
+    tokens = [t for t in tokens if len(t) > 1][:12]
+    return " OR ".join(f"{t}*" for t in tokens) if tokens else '""'
+
+
+def _db_connect() -> sqlite3.Connection | None:
+    if not _memory_enabled():
+        return None
+    path = _memory_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def _init_memory_tables(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, namespace TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT DEFAULT '{}');
+        CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, memory_type TEXT NOT NULL DEFAULT 'fact', content TEXT NOT NULL, source TEXT, confidence REAL NOT NULL DEFAULT 0.70, importance REAL NOT NULL DEFAULT 0.60, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT DEFAULT '{}');
+        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(id UNINDEXED, namespace UNINDEXED, memory_type UNINDEXED, content, source, tokenize = 'porter unicode61');
+        CREATE TABLE IF NOT EXISTS review_queue (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, proposed_type TEXT NOT NULL DEFAULT 'fact', content TEXT NOT NULL, evidence TEXT, status TEXT NOT NULL DEFAULT 'pending', confidence REAL NOT NULL DEFAULT 0.50, created_at TEXT NOT NULL, reviewed_at TEXT, metadata TEXT DEFAULT '{}');
+        CREATE TABLE IF NOT EXISTS peers (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, handle TEXT, role TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT DEFAULT '{}', UNIQUE(namespace, handle));
+        CREATE TABLE IF NOT EXISTS memory_sessions (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, title TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT DEFAULT '{}');
+        CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, session_id TEXT, peer_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, metadata TEXT DEFAULT '{}');
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(id UNINDEXED, namespace UNINDEXED, session_id UNINDEXED, peer_id UNINDEXED, role UNINDEXED, content, tokenize = 'porter unicode61');
+        CREATE TABLE IF NOT EXISTS conclusions (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, session_id TEXT, peer_id TEXT, scope TEXT NOT NULL DEFAULT 'workspace', content TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.70, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT DEFAULT '{}');
+        CREATE VIRTUAL TABLE IF NOT EXISTS conclusions_fts USING fts5(id UNINDEXED, namespace UNINDEXED, session_id UNINDEXED, peer_id UNINDEXED, scope UNINDEXED, content, tokenize = 'porter unicode61');
+        CREATE TABLE IF NOT EXISTS representations (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, peer_id TEXT, kind TEXT NOT NULL DEFAULT 'peer_context', content TEXT NOT NULL, source_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT DEFAULT '{}', UNIQUE(namespace, peer_id, kind));
+        """
+    )
+
+
+
+def sync_local_memory_message(token: str, role: str, actor: str, message: str, namespace: str | None = None, message_id: int = 0) -> None:
+    conn = _db_connect()
+    if not conn:
+        return
+    try:
+        ns = _memory_namespace(namespace)
+        _init_memory_tables(conn)
+        ts = _now_iso()
+        session_id = f"talk_{_safe_token(token)}"
+        handle = _safe_handle(actor or role)
+        peer_id = f"peer_{ns}_{handle}"
+        msg_id = f"msg_talk_{_safe_token(token)}_{int(message_id or time.time() * 1000)}_{role}"
+        conn.execute("INSERT OR IGNORE INTO workspaces(id, namespace, created_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?)", (f"ws_{ns}", ns, ts, ts, "{}"))
+        conn.execute(
+            "INSERT OR IGNORE INTO peers(id, namespace, handle, role, created_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (peer_id, ns, handle, role, ts, ts, json.dumps({"actor": actor or role, "source": "talk_bridge"})),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_sessions(id, namespace, title, created_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, ns, f"Nextcloud Talk room {_safe_token(token)}", ts, ts, json.dumps({"token": _safe_token(token), "source": "talk_bridge"})),
+        )
+        clean_message = _truncate(message, 5000)
+        conn.execute(
+            "INSERT OR IGNORE INTO messages(id, namespace, session_id, peer_id, role, content, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (msg_id, ns, session_id, peer_id, role, clean_message, ts, json.dumps({"talk_message_id": int(message_id or 0), "source": "talk_bridge"})),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO messages_fts(id, namespace, session_id, peer_id, role, content) VALUES (?, ?, ?, ?, ?, ?)",
+            (msg_id, ns, session_id, peer_id, role, clean_message),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def _rows_to_lines(rows, label: str, field: str = "content", limit: int = 5) -> list[str]:
+    lines = []
+    for row in rows[:limit]:
+        try:
+            text = _truncate(str(row[field]), 650).replace("\n", " ")
+            lines.append(f"- {text}")
+        except Exception:
+            continue
+    return [label, *lines] if lines else []
+
+
+def build_local_memory_context(query: str, token: str = "", namespace: str | None = None, limit: int = 5) -> str:
+    conn = _db_connect()
+    if not conn:
+        return ""
+    try:
+        ns = _memory_namespace(namespace)
+        _init_memory_tables(conn)
+        ts = _now_iso()
+        conn.execute(
+            "INSERT OR IGNORE INTO workspaces(id, namespace, created_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?)",
+            (f"ws_{ns}", ns, ts, ts, json.dumps({"source": "talk_context"})),
+        )
+        q = _fts_query(query)
+        memory_rows = []
+        conclusion_rows = []
+        message_rows = []
+        representation_rows = []
+        try:
+            memory_rows = conn.execute(
+                """SELECT m.*, bm25(memories_fts) AS score FROM memories_fts JOIN memories m ON m.id = memories_fts.id
+                   WHERE memories_fts MATCH ? AND m.namespace = ? AND m.status = 'active'
+                   ORDER BY score ASC, m.importance DESC LIMIT ?""",
+                (q, ns, limit),
+            ).fetchall()
+        except Exception:
+            try:
+                memory_rows = conn.execute(
+                    "SELECT * FROM memories WHERE namespace = ? AND status = 'active' AND content LIKE ? ORDER BY importance DESC, updated_at DESC LIMIT ?",
+                    (ns, f"%{query}%", limit),
+                ).fetchall()
+            except Exception:
+                memory_rows = []
+        try:
+            conclusion_rows = conn.execute(
+                """SELECT c.*, bm25(conclusions_fts) AS score FROM conclusions_fts JOIN conclusions c ON c.id = conclusions_fts.id
+                   WHERE conclusions_fts MATCH ? AND c.namespace = ? AND c.status = 'active'
+                   ORDER BY score ASC, c.confidence DESC LIMIT ?""",
+                (q, ns, limit),
+            ).fetchall()
+        except Exception:
+            conclusion_rows = []
+        try:
+            message_rows = conn.execute(
+                """SELECT m.*, bm25(messages_fts) AS score FROM messages_fts JOIN messages m ON m.id = messages_fts.id
+                   WHERE messages_fts MATCH ? AND m.namespace = ?
+                   ORDER BY score ASC LIMIT ?""",
+                (q, ns, limit),
+            ).fetchall()
+        except Exception:
+            message_rows = []
+        if not message_rows and token:
+            try:
+                message_rows = conn.execute(
+                    """SELECT * FROM messages
+                       WHERE namespace = ? AND session_id = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (ns, f"talk_{_safe_token(token)}", limit),
+                ).fetchall()
+            except Exception:
+                message_rows = []
+        try:
+            representation_rows = conn.execute(
+                "SELECT * FROM representations WHERE namespace = ? ORDER BY updated_at DESC LIMIT 2",
+                (ns,),
+            ).fetchall()
+        except Exception:
+            representation_rows = []
+        parts = [
+            "LOCAL SQLITE MEMORY CONTEXT",
+            f"Workspace/namespace: {ns}.",
+            "Use these as targeted long-term context; do not mix namespaces or treat raw messages as approved durable facts.",
+        ]
+        for block in (
+            _rows_to_lines(representation_rows, "Representation cards:"),
+            _rows_to_lines(conclusion_rows, "Relevant conclusions:"),
+            _rows_to_lines(memory_rows, "Relevant durable memories:"),
+            _rows_to_lines(message_rows, "Relevant indexed Talk/Hermes messages:"),
+        ):
+            if block:
+                parts.extend(["", *block])
+        return "\n".join(parts) if len(parts) > 3 else ""
+    except Exception:
+        return ""
+    finally:
+        conn.close()
