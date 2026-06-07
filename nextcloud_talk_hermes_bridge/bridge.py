@@ -80,13 +80,24 @@ def extract(payload: dict) -> dict | None:
         return None
     obj = payload.get("object") or {}
     target = payload.get("target") or {}
-    if obj.get("type") not in (None, "Note"):
-        return None
+    # Accept JSON-content Create events as well as normal Note text. Nextcloud
+    # Talk file shares and voice notes can otherwise be silently ignored.
     raw = obj.get("content") or ""
     try:
         content = json.loads(raw) if raw else {}
     except Exception:
         content = {"message": raw}
+    obj_type = obj.get("type")
+    if obj_type not in (None, "Note"):
+        if not isinstance(content, dict):
+            return None
+        candidate_msg = content.get("message")
+        candidate_params = content.get("parameters") or content.get("messageParameters") or {}
+        candidate_meta = {}
+        if isinstance(candidate_params, dict):
+            candidate_meta = candidate_params.get("metaData") or candidate_params.get("metadata") or {}
+        if candidate_msg != "file_shared" and not candidate_meta:
+            return None
     msg = content.get("message", raw) if isinstance(content, dict) else raw
     params = {}
     if isinstance(content, dict):
@@ -101,11 +112,20 @@ def extract(payload: dict) -> dict | None:
                 if isinstance(v, dict) and v.get("type") == "file":
                     file_info = v
                     break
+    meta = {}
+    if isinstance(params, dict):
+        meta = params.get("metaData") or params.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    message_type = meta.get("messageType") or meta.get("mimeType") or "file"
+    mime_type = meta.get("mimeType", "")
     if file_info:
         name = file_info.get("name", "uploaded file")
         fpath = file_info.get("path", "")
         link = file_info.get("link", "")
-        msg = f"A file was uploaded in Nextcloud Talk: {name}. Path: {fpath}. Link: {link}. User message: {msg}".strip()
+        msg = f"A {message_type} was uploaded/shared in Nextcloud Talk: {name}. Path: {fpath}. Link: {link}. User message: {msg}".strip()
+    elif isinstance(content, dict) and (content.get("message") == "file_shared" or meta):
+        msg = f"A {message_type} was shared in Nextcloud Talk. MIME type: {mime_type or 'unknown'}. If this is a voice note, acknowledge receipt and ask for typed text or an accessible audio file until transcription is configured."
     msg = strip_msg(msg)
     if not msg:
         return None

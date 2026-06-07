@@ -12,6 +12,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 - Preserves short-term per-room context for follow-ups like “make it shorter” or “continue that.”
 - Optionally enriches prompts from a local SQLite memory service: workspace, peers, sessions, messages, conclusions, and representation cards.
 - Passes uploaded-file metadata from Talk events into the Hermes prompt.
+- Handles Talk file-share and voice-message webhook shapes that arrive as non-Note JSON Create events.
 - Supports Hermes profiles, skills, toolsets, and source labels.
 - Supports long-running jobs with background wait + heartbeat messages.
 - Uses only Python standard library at runtime.
@@ -26,7 +27,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 ## Install
 
 ```bash
-git clone https://github.com/robertlmann02/nextcloud-talk-hermes-bridge.git
+git clone https://github.com/YOUR-ORG/nextcloud-talk-hermes-bridge.git
 cd nextcloud-talk-hermes-bridge
 python3 -m venv .venv
 . .venv/bin/activate
