@@ -9,9 +9,9 @@ def load_bridge():
     return importlib.import_module("nextcloud_talk_hermes_bridge.bridge")
 
 
-def base_payload(content, object_type="Note", actor=None):
+def base_payload(content, object_type="Note", actor=None, activity_type="Create"):
     return {
-        "type": "Create",
+        "type": activity_type,
         "actor": actor or {"id": "users/alex", "name": "Alex"},
         "object": {"type": object_type, "id": 42, "content": content},
         "target": {"id": "room-token"},
@@ -48,6 +48,38 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertEqual(ev["actor_name"], "User")
         self.assertIn("voice-message", ev["message"])
         self.assertIn("audio/ogg", ev["message"])
+
+    def test_extract_accepts_non_create_file_shared_voice(self):
+        bridge = load_bridge()
+        payload = base_payload(
+            '{"message":"file_shared","parameters":{"share":"123","metaData":{"messageType":"voice-message","mimeType":"audio/mpeg"}}}',
+            object_type="File",
+            actor={"id": "users/alex", "name": "Alex"},
+            activity_type="Update",
+        )
+        ev = bridge.extract(payload)
+        self.assertIsNotNone(ev)
+        self.assertEqual(ev["actor_name"], "Alex")
+        self.assertIn("voice-message", ev["message"])
+        self.assertIn("audio/mpeg", ev["message"])
+
+    def test_extract_accepts_rendered_file_placeholder_payload(self):
+        bridge = load_bridge()
+        payload = base_payload(
+            '{"message":"{file}","parameters":{"file":{"type":"file","name":"Talk recording.mp3","path":"/Talk/Talk recording.mp3","mimetype":"audio/mpeg"}}}',
+            actor={"id": "users/alex", "name": "Alex"},
+            activity_type="Activity",
+        )
+        ev = bridge.extract(payload)
+        self.assertIsNotNone(ev)
+        self.assertEqual(ev["actor_name"], "Alex")
+        self.assertIn("audio/mpeg", ev["message"])
+        self.assertIn("Talk recording.mp3", ev["message"])
+
+    def test_extract_rejects_unrelated_non_create_event(self):
+        bridge = load_bridge()
+        payload = base_payload('{"message":"not a share"}', activity_type="Update")
+        self.assertIsNone(bridge.extract(payload))
 
     def test_extract_rejects_unrelated_non_note_object(self):
         bridge = load_bridge()

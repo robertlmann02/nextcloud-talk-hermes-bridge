@@ -72,8 +72,11 @@ def verify(headers, raw: bytes) -> bool:
 
 
 def extract(payload: dict) -> dict | None:
-    if payload.get("type") != "Create":
-        return None
+    # Normal Talk text arrives as ActivityStreams Create. Voice/file shares can
+    # arrive as a non-Create activity carrying JSON content like
+    # {"message":"file_shared", ...}; do not drop those before inspecting the
+    # object content.
+    payload_type = payload.get("type")
     actor = payload.get("actor") or {}
     aid = actor.get("id", "")
     if "/bot-" in aid or aid.startswith("bots/"):
@@ -87,18 +90,6 @@ def extract(payload: dict) -> dict | None:
         content = json.loads(raw) if raw else {}
     except Exception:
         content = {"message": raw}
-    obj_type = obj.get("type")
-    if obj_type not in (None, "Note"):
-        if not isinstance(content, dict):
-            return None
-        candidate_msg = content.get("message")
-        candidate_params = content.get("parameters") or content.get("messageParameters") or {}
-        candidate_meta = {}
-        if isinstance(candidate_params, dict):
-            candidate_meta = candidate_params.get("metaData") or candidate_params.get("metadata") or {}
-        if candidate_msg != "file_shared" and not candidate_meta:
-            return None
-    msg = content.get("message", raw) if isinstance(content, dict) else raw
     params = {}
     if isinstance(content, dict):
         params = content.get("parameters") or content.get("messageParameters") or {}
@@ -112,16 +103,34 @@ def extract(payload: dict) -> dict | None:
                 if isinstance(v, dict) and v.get("type") == "file":
                     file_info = v
                     break
+    obj_type = obj.get("type")
+    candidate_msg = content.get("message") if isinstance(content, dict) else ""
+    is_talk_file_payload = isinstance(content, dict) and (
+        candidate_msg in ("file_shared", "{file}") or bool(file_info)
+    )
+    if obj_type not in (None, "Note") and not is_talk_file_payload:
+        return None
+    msg = content.get("message", raw) if isinstance(content, dict) else raw
+    if payload_type != "Create" and not is_talk_file_payload:
+        log(f"ignored non-Create event type={payload_type!r} object_type={(obj.get('type') if isinstance(obj, dict) else '')!r} content_prefix={str(raw)[:120]!r}")
+        return None
     meta = {}
     if isinstance(params, dict):
         meta = params.get("metaData") or params.get("metadata") or {}
     if not isinstance(meta, dict):
         meta = {}
-    message_type = meta.get("messageType") or meta.get("mimeType") or "file"
-    mime_type = meta.get("mimeType", "")
+    file_name = ""
+    file_path = ""
+    file_mime = ""
+    if isinstance(file_info, dict):
+        file_name = str(file_info.get("name") or "")
+        file_path = str(file_info.get("path") or "")
+        file_mime = str(file_info.get("mimeType") or file_info.get("mimetype") or "")
+    message_type = meta.get("messageType") or meta.get("mimeType") or file_mime or "file"
+    mime_type = meta.get("mimeType", "") or file_mime
     if file_info:
-        name = file_info.get("name", "uploaded file")
-        fpath = file_info.get("path", "")
+        name = file_name or file_info.get("name", "uploaded file")
+        fpath = file_path or file_info.get("path", "")
         link = file_info.get("link", "")
         msg = f"A {message_type} was uploaded/shared in Nextcloud Talk: {name}. Path: {fpath}. Link: {link}. User message: {msg}".strip()
     elif isinstance(content, dict) and (content.get("message") == "file_shared" or meta):
