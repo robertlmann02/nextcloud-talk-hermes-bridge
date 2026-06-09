@@ -13,6 +13,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 - Optionally enriches prompts from a local SQLite memory service: workspace, peers, sessions, messages, conclusions, and representation cards.
 - Passes uploaded-file metadata from Talk events into the Hermes prompt.
 - Handles Talk file-share and voice-message webhook shapes that arrive as non-Note JSON Create events.
+- Optionally transcribes Talk voice/audio shares when the bridge host has local Nextcloud file access, ffmpeg, and whisper.cpp available.
 - Supports Hermes profiles, skills, toolsets, and source labels.
 - Supports long-running jobs with background wait + heartbeat messages.
 - Uses only Python standard library at runtime.
@@ -109,8 +110,19 @@ The bridge handles:
 - `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
 - `TALK_CONTEXT_DIR`: where room context JSONL files are stored.
 - `TALK_LOCAL_MEMORY_CONTEXT`: `1`/`0` toggle for local SQLite memory context injection. Defaults to `1`.
-- `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `robert`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
+- `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `personal`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
 - `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.
+
+Optional voice/audio transcription settings:
+
+- `NEXTCLOUD_DATA_ROOT`: local Nextcloud data root, used to resolve shared audio files. Defaults to `/var/www/html/data`.
+- `TALK_NEXTCLOUD_CONTAINER`: Docker container name used for resolving share IDs through Nextcloud config/PDO. Defaults to `nextcloud`.
+- `TALK_NEXTCLOUD_USER`: fallback Nextcloud user ID for rendered `{file}` payloads that only include a display path/name.
+- `TALK_FFMPEG_BIN`: ffmpeg binary for converting audio before transcription. Defaults to `ffmpeg`.
+- `TALK_WHISPER_BIN`: whisper.cpp binary. Defaults to `whisper-cli`.
+- `TALK_WHISPER_MODEL`: whisper.cpp model path. If unset or missing, transcription is skipped.
+- `TALK_TRANSCRIBE_MAX_BYTES`: max audio file size to transcribe. Defaults to 50 MiB.
+- `TALK_TRANSCRIBE_TIMEOUT`: transcription timeout in seconds. Defaults to 180.
 
 ## Local SQLite memory service
 

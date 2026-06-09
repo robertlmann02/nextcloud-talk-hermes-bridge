@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .talk_context import append_turn, build_context_packet, sync_local_memory_message
+from .talk_voice_transcribe import transcribe_from_talk_params
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 SECRET = os.environ["TALK_BOT_SECRET"]
@@ -135,6 +136,22 @@ def extract(payload: dict) -> dict | None:
         msg = f"A {message_type} was uploaded/shared in Nextcloud Talk: {name}. Path: {fpath}. Link: {link}. User message: {msg}".strip()
     elif isinstance(content, dict) and (content.get("message") == "file_shared" or meta):
         msg = f"A {message_type} was shared in Nextcloud Talk. MIME type: {mime_type or 'unknown'}. If this is a voice note, acknowledge receipt and ask for typed text or an accessible audio file until transcription is configured."
+    audio_exts = (".mp3", ".m4a", ".ogg", ".oga", ".opus", ".wav", ".webm", ".aac")
+    looks_audio_file = file_name.lower().endswith(audio_exts) or file_path.lower().endswith(audio_exts)
+    is_audio_payload = (
+        str(message_type).lower() == "voice-message"
+        or str(mime_type).lower().startswith("audio/")
+        or looks_audio_file
+    )
+    if is_audio_payload:
+        transcript = transcribe_from_talk_params(params)
+        if transcript:
+            msg = f"A voice message was shared in Nextcloud Talk. Transcription: {transcript}"
+        elif "until transcription is configured" in msg:
+            msg = msg.replace(
+                "until transcription is configured",
+                "because local transcription could not read this audio file",
+            )
     msg = strip_msg(msg)
     if not msg:
         return None

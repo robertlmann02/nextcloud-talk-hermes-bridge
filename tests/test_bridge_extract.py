@@ -1,6 +1,7 @@
 import importlib
 import os
 import unittest
+from unittest import mock
 
 
 def load_bridge():
@@ -75,6 +76,16 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertEqual(ev["actor_name"], "Alex")
         self.assertIn("audio/mpeg", ev["message"])
         self.assertIn("Talk recording.mp3", ev["message"])
+
+    def test_extract_transcribes_audio_when_local_transcription_available(self):
+        bridge = load_bridge()
+        payload = base_payload(
+            '{"message":"{file}","parameters":{"file":{"type":"file","name":"Talk recording.ogg","path":"/Talk/Talk recording.ogg","mimetype":"audio/ogg"}}}',
+            activity_type="Activity",
+        )
+        with mock.patch.object(bridge, "transcribe_from_talk_params", return_value="hello from the voice note"):
+            ev = bridge.extract(payload)
+        self.assertIn("Transcription: hello from the voice note", ev["message"])
 
     def test_extract_rejects_unrelated_non_create_event(self):
         bridge = load_bridge()
