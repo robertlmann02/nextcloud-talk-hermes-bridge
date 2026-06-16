@@ -1,5 +1,10 @@
 # Nextcloud Talk Hermes Bridge
 
+<p align="center">
+  <img src=".github/assets/mannindustries-logo.png" alt="MannIndustries logo" width="420">
+</p>
+
+
 A small webhook bridge that connects a Nextcloud Talk bot to [Hermes Agent](https://hermes-agent.nousresearch.com/docs).
 
 It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with a configurable profile/persona/toolset, and posts the final answer back to the Talk room with signed bot messages.
