@@ -105,7 +105,7 @@ Add tests that do not require a live Nextcloud server:
 2. Non-document casual messages return empty string.
 3. Document-looking questions call the configured backend.
 4. Results are truncated to `NEXTCLOUD_AI_CONTEXT_MAX_CHARS`.
-5. Network/API failures return empty string and log, never crash the bridge.
+5. Network/API failures are handled without adding document context.
 6. `ask()` includes the optional context when returned.
 
 Existing baseline before Phase 1:

@@ -2,10 +2,7 @@
 """Optional Nextcloud AI/document context helpers for the Talk bridge.
 
 This module is deliberately disabled by default. When enabled, it gathers a
-small, bounded context packet before Hermes is invoked. The primary backend is
-Nextcloud's OCS file search endpoint. A generic SSH file-search fallback is also
-available for deployments where an administrator has filesystem SSH access but
-not a Nextcloud app password for OCS.
+small, bounded context packet from Nextcloud before Hermes is invoked. The backend is deterministic file search via Nextcloud's OCS search endpoint.
 """
 from __future__ import annotations
 
@@ -13,8 +10,6 @@ import base64
 import json
 import os
 import re
-import shlex
-import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -133,88 +128,6 @@ def _ocs_file_search(query: str) -> list[dict[str, Any]]:
     return out
 
 
-def _context_limit() -> int:
-    try:
-        return max(1, min(50, int(os.environ.get("NEXTCLOUD_AI_CONTEXT_LIMIT", "6") or "6")))
-    except ValueError:
-        return 6
-
-
-def _ssh_search_roots() -> list[str]:
-    roots_raw = os.environ.get("NEXTCLOUD_AI_SSH_SEARCH_ROOTS", "")
-    return [root.strip() for root in roots_raw.split(":") if root.strip()]
-
-
-def _ssh_file_search(query: str) -> list[dict[str, Any]]:
-    """Search readable filesystem paths over SSH as an OCS fallback.
-
-    This backend is intended for private deployments where the bridge host has a
-    dedicated SSH account that can read the relevant files but does not have a
-    Nextcloud OCS app password. It returns filename/path metadata only; it never
-    reads or injects file contents.
-    """
-    host = os.environ.get("NEXTCLOUD_AI_SSH_HOST")
-    user = os.environ.get("NEXTCLOUD_AI_SSH_USER")
-    password = os.environ.get("NEXTCLOUD_AI_SSH_PASSWORD")
-    key_file = os.environ.get("NEXTCLOUD_AI_SSH_KEY_FILE")
-    roots = _ssh_search_roots()
-    if not host or not user or not roots or not query:
-        return []
-    if password and key_file:
-        return []
-    if password and not _has_command("sshpass"):
-        return []
-
-    terms = [w for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,}", query) if w.lower() not in STOP_WORDS][:4]
-    if not terms:
-        terms = [query[:80]]
-    name_expr = " -o ".join([f"-iname {shlex.quote('*' + term + '*')}" for term in terms])
-    root_args = " ".join(shlex.quote(root) for root in roots)
-    limit = _context_limit()
-    remote = f"find {root_args} -maxdepth 8 -type f \\( {name_expr} \\) 2>/dev/null | head -n {limit}"
-
-    cmd = ["ssh", "-o", "StrictHostKeyChecking=accept-new", "-o", f"ConnectTimeout={_timeout()}"]
-    env = os.environ.copy()
-    if key_file:
-        cmd.extend(["-i", key_file, "-o", "PasswordAuthentication=no"])
-    elif password:
-        env["SSHPASS"] = password
-        cmd = ["sshpass", "-e", *cmd, "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"]
-    cmd.extend([f"{user}@{host}", remote])
-
-    proc = subprocess.run(
-        cmd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=_timeout() + 5,
-        env=env,
-    )
-    if proc.returncode not in (0, 1):
-        return []
-    out: list[dict[str, Any]] = []
-    for line in proc.stdout.splitlines():
-        path = line.strip()
-        if not path:
-            continue
-        out.append({
-            "title": os.path.basename(path) or path,
-            "subline": "SSH filesystem match",
-            "path": path,
-            "mime": "",
-            "link": "",
-        })
-    return out
-
-
-def _has_command(command: str) -> bool:
-    for directory in os.environ.get("PATH", "").split(os.pathsep):
-        candidate = os.path.join(directory, command)
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return True
-    return False
-
-
 def _format_results(query: str, results: list[dict[str, Any]]) -> str:
     if not results:
         return ""
@@ -259,7 +172,7 @@ def build_nextcloud_ai_context(message: str, token: str = "", actor: str = "") -
     if not _enabled():
         return ""
     mode = os.environ.get("NEXTCLOUD_AI_CONTEXT_MODE", "files_search").strip().lower()
-    if mode not in {"files_search", "ocs_files", "ssh_files_search", "ssh_files"}:
+    if mode not in {"files_search", "ocs_files"}:
         return ""
     if not _looks_document_related(message):
         return ""
@@ -267,8 +180,6 @@ def build_nextcloud_ai_context(message: str, token: str = "", actor: str = "") -
     if len(query) < _min_query_chars():
         return ""
     try:
-        if mode in {"ssh_files_search", "ssh_files"}:
-            return _format_results(query, _ssh_file_search(query))
         return _format_results(query, _ocs_file_search(query))
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
         # Avoid importing bridge.log to prevent cycles. Runtime bridge logging can
