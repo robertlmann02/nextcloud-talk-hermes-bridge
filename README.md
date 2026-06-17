@@ -114,6 +114,17 @@ The bridge handles:
 - `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `personal`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
 - `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.
 
+Optional Nextcloud AI/document context settings:
+
+- `NEXTCLOUD_AI_CONTEXT`: `1`/`0` toggle for injecting bounded candidate file matches into the Hermes prompt. Defaults to `0`.
+- `NEXTCLOUD_AI_CONTEXT_MODE`: `files_search` for Nextcloud OCS search, or `ssh_files_search` for a read-only SSH filesystem search fallback.
+- `NEXTCLOUD_AI_USER` / `NEXTCLOUD_AI_APP_PASSWORD`: Nextcloud user/app password for OCS file search.
+- `NEXTCLOUD_AI_SSH_HOST` / `NEXTCLOUD_AI_SSH_USER`: SSH target used by `ssh_files_search`.
+- `NEXTCLOUD_AI_SSH_KEY_FILE`: preferred SSH key path for the fallback backend.
+- `NEXTCLOUD_AI_SSH_PASSWORD`: optional password fallback used through `sshpass -e`; the password is not placed on the SSH command line.
+- `NEXTCLOUD_AI_SSH_SEARCH_ROOTS`: colon-separated readable directories to search. Results are filename/path metadata only; file contents are not read or injected.
+- `NEXTCLOUD_AI_CONTEXT_LIMIT`, `NEXTCLOUD_AI_CONTEXT_MAX_CHARS`, `NEXTCLOUD_AI_CONTEXT_TIMEOUT`, and `NEXTCLOUD_AI_CONTEXT_MIN_QUERY_CHARS`: bounds for result count, injected context size, network/process timeout, and query filtering.
+
 Optional voice/audio transcription settings:
 
 - `NEXTCLOUD_DATA_ROOT`: local Nextcloud data root, used to resolve shared audio files. Defaults to `/var/www/html/data`.

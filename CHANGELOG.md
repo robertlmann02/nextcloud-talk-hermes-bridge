@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 - 2026-06-17
+
+- Add a public-safe `ssh_files_search` Nextcloud AI context backend for deployments where a read-only SSH account can search document paths but OCS/app-password authentication is unavailable.
+- Support SSH key auth or password auth via `sshpass -e` without placing passwords on the process command line; results remain bounded candidate metadata only.
+- Document the new generic `NEXTCLOUD_AI_SSH_*` settings and add regression coverage for mode selection, command construction, and auth-method validation.
+
 ## 0.1.4 - 2026-06-17
 
 - Add an optional `NEXTCLOUD_AI_CONTEXT` hook that injects bounded Nextcloud document/file search context into Hermes prompts when explicitly enabled.
