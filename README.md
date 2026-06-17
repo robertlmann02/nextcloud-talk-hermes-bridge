@@ -1,9 +1,5 @@
 # Nextcloud Talk Hermes Bridge
 
-<p align="center">
-  <img src=".github/assets/mannindustries-logo.png" alt="MannIndustries logo" width="420">
-</p>
-
 
 A small webhook bridge that connects a Nextcloud Talk bot to [Hermes Agent](https://hermes-agent.nousresearch.com/docs).
 
