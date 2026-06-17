@@ -22,6 +22,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .nextcloud_ai_context import build_nextcloud_ai_context
 from .talk_context import append_turn, build_context_packet, sync_local_memory_message
 from .talk_voice_transcribe import transcribe_from_talk_params
 
@@ -227,6 +228,9 @@ Bridge operating rules:
 
 
 def ask(message: str, actor: str, context_packet: str = "", token: str = "", reply_to: int = 0) -> str:
+    extra_context = build_nextcloud_ai_context(message, token=token, actor=actor)
+    if extra_context:
+        context_packet = (context_packet + "\n\n" + extra_context).strip()
     prompt = build_prompt(message, actor, context_packet)
     cmd = [
         HERMES,

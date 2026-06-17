@@ -96,6 +96,20 @@ class BridgeExtractTests(unittest.TestCase):
         bridge = load_bridge()
         payload = base_payload("plain unrelated payload", object_type="CalendarObject")
         self.assertIsNone(bridge.extract(payload))
+    def test_ask_includes_nextcloud_ai_context_when_available(self):
+        bridge = load_bridge()
+        popen_result = mock.Mock()
+        popen_result.communicate.return_value = ("Hermes final reply", "")
+        popen_result.returncode = 0
+        with mock.patch.object(bridge, "build_nextcloud_ai_context", return_value="NEXTCLOUD AI / DOCUMENT CONTEXT\nCandidate files:\n1. Manual.pdf"):
+            with mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
+                reply = bridge.ask("find the manual PDF", "Alex", "BASE CONTEXT", token="room-token", reply_to=42)
+        self.assertEqual(reply, "Hermes final reply")
+        cmd = popen.call_args.args[0]
+        prompt = cmd[cmd.index("-q") + 1]
+        self.assertIn("BASE CONTEXT", prompt)
+        self.assertIn("NEXTCLOUD AI / DOCUMENT CONTEXT", prompt)
+        self.assertIn("Manual.pdf", prompt)
 
 
 if __name__ == "__main__":

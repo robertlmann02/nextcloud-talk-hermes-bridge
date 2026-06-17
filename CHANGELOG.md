@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - 2026-06-17
+
+- Add an optional `NEXTCLOUD_AI_CONTEXT` hook that injects bounded Nextcloud document/file search context into Hermes prompts when explicitly enabled.
+- Keep the feature disabled by default and best-effort: disabled, irrelevant, unconfigured, timeout, or API failure cases return no extra context and do not block bridge replies.
+- Add mocked regression coverage for disabled/default behavior, casual-message filtering, OCS file-search parsing, truncation, failure safety, and prompt injection.
+
 ## 0.1.3 - 2026-06-08
 
 - Add optional local voice-message transcription for Nextcloud Talk audio/file-share webhook payloads using ffmpeg plus whisper.cpp when local Nextcloud data access is available.

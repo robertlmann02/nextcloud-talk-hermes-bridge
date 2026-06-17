@@ -1,6 +1,6 @@
 [project]
 name = "nextcloud-talk-hermes-bridge"
-version = "0.1.3"
+version = "0.1.4"
 description = "Webhook bridge that connects Nextcloud Talk bots to Hermes Agent"
 readme = "README.md"
 requires-python = ">=3.11"
