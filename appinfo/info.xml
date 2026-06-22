@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<info>
+  <id>hermes_talk_bridge</id>
+  <name>Hermes Talk Bridge</name>
+  <summary>Bridge Nextcloud Talk bot messages to Hermes Agent.</summary>
+  <description><![CDATA[
+Hermes Talk Bridge is a Nextcloud External App that connects Nextcloud Talk bot webhook events to a Hermes Agent backend. It verifies Talk webhook signatures, runs Hermes with an administrator-selected profile, and posts signed bot replies back into the same Talk room.
+
+The external service runs in an AppAPI-managed Docker container. Administrators control the Hermes provider/profile, enabled toolsets, timeout limits, memory settings, and optional document/voice context features through environment variables. No provider API keys or Nextcloud app passwords are bundled in this app package.
+  ]]></description>
+  <version>0.2.0</version>
+  <licence>MIT</licence>
+  <author mail="robertlmann02@users.noreply.github.com" homepage="https://github.com/robertlmann02">Robert Mann</author>
+  <namespace>HermesTalkBridge</namespace>
+  <category>integration</category>
+  <category>social</category>
+  <category>ai</category>
+  <website>https://github.com/robertlmann02/nextcloud-talk-hermes-bridge</website>
+  <bugs>https://github.com/robertlmann02/nextcloud-talk-hermes-bridge/issues</bugs>
+  <repository type="git">https://github.com/robertlmann02/nextcloud-talk-hermes-bridge</repository>
+  <dependencies>
+    <nextcloud min-version="30" max-version="35"/>
+  </dependencies>
+  <external-app>
+    <docker-install>
+      <registry>ghcr.io</registry>
+      <image>robertlmann02/nextcloud-talk-hermes-bridge</image>
+      <image-tag>0.2.0</image-tag>
+    </docker-install>
+    <scopes>
+      <value>TALK</value>
+      <value>TALK_BOT</value>
+      <value>FILES</value>
+    </scopes>
+    <routes>
+      <route>
+        <url>^/(health|heartbeat|init|enabled|hook)$</url>
+        <verb>GET,POST,PUT</verb>
+        <access_level>PUBLIC</access_level>
+        <headers_to_exclude>[]</headers_to_exclude>
+        <bruteforce_protection>[401,500]</bruteforce_protection>
+      </route>
+    </routes>
+  </external-app>
+</info>

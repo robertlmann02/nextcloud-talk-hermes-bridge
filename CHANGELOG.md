@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- Add Nextcloud AppAPI/External App metadata for App Store submission.
+- Add Docker packaging for the bridge runtime with Hermes Agent installed in the container.
+- Add AppAPI lifecycle endpoints: `/heartbeat`, `/init`, and `/enabled`.
+- Add release scripts for CSR generation, app signing, and App Store tarball creation.
+- Add CI and GHCR Docker publish workflows.
+
+
 ## 0.1.4 - 2026-06-17
 
 - Add an optional `NEXTCLOUD_AI_CONTEXT` hook that injects bounded Nextcloud document/file search context into Hermes prompts when explicitly enabled.

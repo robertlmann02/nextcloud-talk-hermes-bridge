@@ -27,15 +27,17 @@ from .talk_context import append_turn, build_context_packet, sync_local_memory_m
 from .talk_voice_transcribe import transcribe_from_talk_params
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
-SECRET = os.environ["TALK_BOT_SECRET"]
-NEXTCLOUD_URL = os.environ["NEXTCLOUD_URL"].rstrip("/")
+APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
+APP_VERSION = os.environ.get("APP_VERSION", "0.2.0")
+SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
+NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
 HERMES = os.environ.get("HERMES_BIN", "hermes")
 HERMES_PROFILE = os.environ.get("HERMES_PROFILE", "default")
 HERMES_HOME_DIR = os.environ.get("HERMES_HOME_DIR", str(Path.home()))
 SOURCE_NAME = os.environ.get("HERMES_SOURCE", "nextcloud-talk-hermes-bridge")
 LOG = Path(os.environ.get("TALK_BRIDGE_LOG", str(Path.home() / ".local/state/nextcloud-talk-hermes-bridge/bridge.log")))
-PORT = int(os.environ.get("TALK_BRIDGE_PORT", "8788"))
-BIND = os.environ.get("TALK_BRIDGE_BIND", "0.0.0.0")
+PORT = int(os.environ.get("TALK_BRIDGE_PORT") or os.environ.get("APP_PORT", "8788"))
+BIND = os.environ.get("TALK_BRIDGE_BIND") or os.environ.get("APP_HOST", "0.0.0.0")
 ASSISTANT_NAME = os.environ.get("ASSISTANT_NAME", "Hermes Talk Assistant")
 ASSISTANT_ROLE = os.environ.get(
     "ASSISTANT_ROLE",
@@ -65,6 +67,9 @@ def strip_msg(s: str) -> str:
 
 
 def verify(headers, raw: bytes) -> bool:
+    if not SECRET:
+        log("missing TALK_BOT_SECRET/APP_SECRET; rejecting webhook")
+        return False
     rnd = headers.get("X-Nextcloud-Talk-Random", "")
     sig = headers.get("X-Nextcloud-Talk-Signature", "")
     if not rnd or not sig:
@@ -311,6 +316,9 @@ def ask(message: str, actor: str, context_packet: str = "", token: str = "", rep
 
 
 def post(token: str, message: str, reply_to: int = 0) -> int | None:
+    if not SECRET:
+        log("missing TALK_BOT_SECRET/APP_SECRET; cannot post bot message")
+        return None
     url = f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v1/bot/{token}/message"
 
     def send(include_reply: bool = True) -> int:
@@ -362,13 +370,39 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002 - matches BaseHTTPRequestHandler signature
         log("http " + format % args)
 
-    def do_GET(self):
-        self.send_response(200 if self.path == "/health" else 404)
+    def _write_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(b"ok" if self.path == "/health" else b"not found")
+        self.wfile.write(body)
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path in {"/health", "/heartbeat"}:
+            self._write_json(200, {"status": "ok", "app_id": APP_ID, "version": APP_VERSION})
+            return
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write(b"not found")
+
+    def do_PUT(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/enabled":
+            enabled = urllib.parse.parse_qs(parsed.query).get("enabled", [""])[0]
+            log(f"AppAPI enabled state changed: enabled={enabled!r}")
+            self._write_json(200, {"error": ""})
+            return
+        self.send_response(404)
+        self.end_headers()
 
     def do_POST(self):
-        if self.path != "/hook":
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/init":
+            self._write_json(200, {})
+            return
+        if parsed.path != "/hook":
             self.send_response(404)
             self.end_headers()
             return

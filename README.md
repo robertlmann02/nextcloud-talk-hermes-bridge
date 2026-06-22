@@ -163,3 +163,38 @@ python -m nextcloud_talk_hermes_bridge.bridge
 ```
 
 The second command needs environment variables and will start the server.
+
+## Nextcloud App Store / AppAPI ExApp package
+
+This repository now includes an Option A Nextcloud External App (ExApp) wrapper for App Store submission. The App Store app ID is `hermes_talk_bridge`, and the runtime is delivered as an AppAPI-managed Docker image declared in `appinfo/info.xml`.
+
+AppAPI lifecycle endpoints implemented by the bridge:
+
+- `GET /heartbeat` — AppAPI health probe.
+- `POST /init` — initialization acknowledgement.
+- `PUT /enabled?enabled=1|0` — enable/disable lifecycle acknowledgement.
+- `POST /hook` — Nextcloud Talk bot webhook receiver.
+
+Build and smoke-test locally:
+
+```bash
+python -m compileall nextcloud_talk_hermes_bridge
+python -m pytest -q
+python scripts/build_appstore_package.py --allow-unsigned
+docker build -t nextcloud-talk-hermes-bridge:local .
+```
+
+Generate a signing CSR after the app ID is final:
+
+```bash
+scripts/generate_signing_csr.sh
+```
+
+Submit only the generated `.csr` to the Nextcloud certificate request repository. Keep the `.key` private and out of git. After Nextcloud returns a certificate, sign with:
+
+```bash
+scripts/sign_app.sh /path/to/nextcloud/occ release/signing/hermes_talk_bridge.key /path/to/hermes_talk_bridge.crt
+python scripts/build_appstore_package.py
+```
+
+See `EXAPP_SUBMISSION.md` for the App Store submission checklist and data-flow disclosure.
