@@ -7,6 +7,7 @@
 - Add AppAPI lifecycle endpoints: `/heartbeat`, `/init`, and `/enabled`.
 - Add release scripts for CSR generation, app signing, and App Store tarball creation.
 - Add CI and GHCR Docker publish workflows.
+- Preserve the Talk context packet header/persona instructions when large local memory context must be truncated.
 
 
 ## 0.1.4 - 2026-06-17

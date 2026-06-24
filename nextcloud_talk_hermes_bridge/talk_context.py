@@ -158,13 +158,23 @@ def build_context_packet(
             lines.append(f"[{tm}] {role}/{actor}#{mid}: {msg}")
     else:
         lines.append("- No prior turns recorded yet.")
+    # Preserve the bridge instructions, identity boundaries, working state, and
+    # recent room turns at the front of the packet. Large uploaded Mann_Memory
+    # databases can produce a big local-memory/Honcho packet; truncating from
+    # the tail of the combined packet would drop the critical header and make
+    # the model behave as if the bridge persona/context disappeared.
+    base_packet = "\n".join(lines).strip()
     memory_packet = build_local_memory_context(current_message or working.get("last_user_message", ""), token, namespace=namespace)
-    if memory_packet:
-        lines.extend(["", memory_packet])
-    packet = "\n".join(lines).strip()
-    if len(packet) > MAX_PACKET_CHARS:
-        packet = packet[-MAX_PACKET_CHARS:]
-    return packet
+    if not memory_packet:
+        return base_packet[:MAX_PACKET_CHARS]
+
+    separator = "\n\nLOCAL MEMORY CONTEXT:\n"
+    budget = MAX_PACKET_CHARS - len(base_packet) - len(separator)
+    if budget <= 0:
+        return base_packet[:MAX_PACKET_CHARS]
+    if len(memory_packet) > budget:
+        memory_packet = memory_packet[: max(0, budget - 80)].rstrip() + "\n...[local memory context truncated]"
+    return (base_packet + separator + memory_packet).strip()
 
 
 def _memory_enabled() -> bool:
