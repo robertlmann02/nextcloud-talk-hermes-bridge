@@ -175,7 +175,7 @@ AppAPI lifecycle endpoints implemented by the bridge:
 - `PUT /enabled?enabled=1|0` — enable/disable lifecycle acknowledgement.
 - `POST /hook` — Nextcloud Talk bot webhook receiver.
 
-Build and smoke-test locally:
+Build and smoke-test locally before release:
 
 ```bash
 python -m compileall nextcloud_talk_hermes_bridge
@@ -184,17 +184,36 @@ python scripts/build_appstore_package.py --allow-unsigned
 docker build -t nextcloud-talk-hermes-bridge:local .
 ```
 
-Generate a signing CSR after the app ID is final:
+After the app ID is final, generate the signing key and CSR locally:
 
 ```bash
 scripts/generate_signing_csr.sh
 ```
 
-Submit only the generated `.csr` to the Nextcloud certificate request repository. Keep the `.key` private and out of git. After Nextcloud returns a certificate, sign with:
+Keep private and local:
+
+- `.key` files
+- app passwords
+- bot tokens
+- OAuth/auth files
+- `.env` files
+
+Submit to GitHub / the Nextcloud certificate request repo:
+
+- only the generated `.csr`
+
+By default the helper stores the private key and CSR durably at:
+
+```text
+~/.nextcloud/certificates/hermes_talk_bridge.key
+~/.nextcloud/certificates/hermes_talk_bridge.csr
+```
+
+After Nextcloud returns the certificate, save it beside the retained key and sign the release locally with the matching private key and certificate:
 
 ```bash
-scripts/sign_app.sh /path/to/nextcloud/occ release/signing/hermes_talk_bridge.key /path/to/hermes_talk_bridge.crt
+scripts/sign_app.sh /path/to/nextcloud/occ ~/.nextcloud/certificates/hermes_talk_bridge.key ~/.nextcloud/certificates/hermes_talk_bridge.crt
 python scripts/build_appstore_package.py
 ```
 
-See `EXAPP_SUBMISSION.md` for the App Store submission checklist and data-flow disclosure.
+Do not put the private key on GitHub. See `EXAPP_SUBMISSION.md` for the App Store submission checklist and data-flow disclosure.

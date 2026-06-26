@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 app_id="hermes_talk_bridge"
-out_dir="${1:-release/signing}"
+out_dir="${1:-$HOME/.nextcloud/certificates}"
 mkdir -p "$out_dir"
+chmod 700 "$out_dir"
 key="$out_dir/${app_id}.key"
 csr="$out_dir/${app_id}.csr"
 if [ -e "$key" ] || [ -e "$csr" ]; then

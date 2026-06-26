@@ -6,6 +6,7 @@
 - Add Docker packaging for the bridge runtime with Hermes Agent installed in the container.
 - Add AppAPI lifecycle endpoints: `/heartbeat`, `/init`, and `/enabled`.
 - Add release scripts for CSR generation, app signing, and App Store tarball creation.
+- Clarify public GitHub/App Store release instructions: only the CSR is submitted publicly, while keys, app passwords, bot tokens, OAuth/auth files, and `.env` files stay local/private.
 - Add CI and GHCR Docker publish workflows.
 - Preserve the Talk context packet header/persona instructions when large local memory context must be truncated.
 
