@@ -14,4 +14,5 @@ openssl req -nodes -newkey rsa:4096 -keyout "$key" -out "$csr" -subj "/CN=${app_
 chmod 600 "$key"
 echo "Private key: $key"
 echo "CSR: $csr"
-echo "Submit only the CSR to https://github.com/nextcloud/app-certificate-requests; keep the .key private."
+echo "CSR written to $csr"
+echo "Private key retained at $key"

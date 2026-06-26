@@ -41,38 +41,8 @@ No LLM provider credentials are bundled. Administrators configure Hermes provide
    ```
 
 2. Publish the Docker image to GHCR for the version in `appinfo/info.xml`.
-3. After the app ID is final, generate the signing key and CSR locally with `scripts/generate_signing_csr.sh`.
-
-   The helper stores the private signing material durably under:
-
-   ```text
-   ~/.nextcloud/certificates/hermes_talk_bridge.key
-   ~/.nextcloud/certificates/hermes_talk_bridge.csr
-   ```
-
-4. Keep private and local:
-
-   - `.key` files
-   - app passwords
-   - bot tokens
-   - OAuth/auth files
-   - `.env` files
-
-5. Submit to GitHub / the Nextcloud certificate request repo only:
-
-   - `hermes_talk_bridge/hermes_talk_bridge.csr`
-
-6. After Nextcloud returns the certificate, save it beside the retained key as `~/.nextcloud/certificates/hermes_talk_bridge.crt`.
-7. Sign the release locally with the matching private key and certificate:
-
-   ```bash
-   scripts/sign_app.sh /path/to/nextcloud/occ ~/.nextcloud/certificates/hermes_talk_bridge.key ~/.nextcloud/certificates/hermes_talk_bridge.crt
-   python scripts/build_appstore_package.py
-   ```
-
-8. Upload the `.tar.gz` release artifact URL to https://apps.nextcloud.com/developer/apps/new.
-
-Do not put the private key, app passwords, bot tokens, OAuth/auth files, or `.env` files on GitHub.
+3. Build the App Store tarball with `scripts/build_appstore_package.py`.
+4. Upload the `.tar.gz` release artifact URL to https://apps.nextcloud.com/developer/apps/new.
 
 For pre-review/testing before the certificate is issued, use:
 

@@ -184,36 +184,5 @@ python scripts/build_appstore_package.py --allow-unsigned
 docker build -t nextcloud-talk-hermes-bridge:local .
 ```
 
-After the app ID is final, generate the signing key and CSR locally:
+For App Store packaging details, see `EXAPP_SUBMISSION.md`.
 
-```bash
-scripts/generate_signing_csr.sh
-```
-
-Keep private and local:
-
-- `.key` files
-- app passwords
-- bot tokens
-- OAuth/auth files
-- `.env` files
-
-Submit to GitHub / the Nextcloud certificate request repo:
-
-- only the generated `.csr`
-
-By default the helper stores the private key and CSR durably at:
-
-```text
-~/.nextcloud/certificates/hermes_talk_bridge.key
-~/.nextcloud/certificates/hermes_talk_bridge.csr
-```
-
-After Nextcloud returns the certificate, save it beside the retained key and sign the release locally with the matching private key and certificate:
-
-```bash
-scripts/sign_app.sh /path/to/nextcloud/occ ~/.nextcloud/certificates/hermes_talk_bridge.key ~/.nextcloud/certificates/hermes_talk_bridge.crt
-python scripts/build_appstore_package.py
-```
-
-Do not put the private key on GitHub. See `EXAPP_SUBMISSION.md` for the App Store submission checklist and data-flow disclosure.
