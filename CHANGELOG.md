@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add Talk-visible Hermes skill-management guidance: when the `skills` toolset is enabled, Hermes is prompted to report created/updated/deleted skill names in the final Nextcloud Talk reply.
+
 ## 0.2.0
 
 - Add Nextcloud AppAPI/External App metadata for App Store submission.

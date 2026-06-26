@@ -111,6 +111,21 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertIn("NEXTCLOUD AI / DOCUMENT CONTEXT", prompt)
         self.assertIn("Manual.pdf", prompt)
 
+    def test_ask_exposes_skills_toolset_and_skill_status_rule(self):
+        bridge = load_bridge()
+        popen_result = mock.Mock()
+        popen_result.communicate.return_value = ("Done", "")
+        popen_result.returncode = 0
+        with mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
+            bridge.ask("save this as a skill", "Alex", "", token="room-token", reply_to=42)
+        cmd = popen.call_args.args[0]
+        self.assertIn("--toolsets", cmd)
+        self.assertIn("skills", cmd[cmd.index("--toolsets") + 1])
+        prompt = cmd[cmd.index("-q") + 1]
+        self.assertIn("Skill-management visibility rule", prompt)
+        self.assertIn("Skills changed:", prompt)
+        self.assertIn("Name every skill changed", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

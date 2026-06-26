@@ -106,6 +106,7 @@ The bridge handles:
 - `HERMES_PROFILE`: Hermes profile to run, such as `default` or a dedicated assistant profile.
 - `HERMES_TOOLSETS`: comma-separated toolsets exposed to Hermes.
 - `HERMES_SKILLS`: comma-separated skills to pre-load.
+- `TALK_BRIDGE_SKILL_STATUS`: `1`/`0` toggle. When enabled, the bridge prompt tells Hermes to explicitly report any skill creation, patch, edit, or deletion in its final Talk reply, including the skill names changed.
 - `HERMES_YOLO`: `1` enables non-interactive tool execution. Set to `0` if you want a safer/default Hermes mode.
 - `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
 - `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
@@ -131,6 +132,18 @@ Optional voice/audio transcription settings:
 - `TALK_WHISPER_MODEL`: whisper.cpp model path. If unset or missing, transcription is skipped.
 - `TALK_TRANSCRIBE_MAX_BYTES`: max audio file size to transcribe. Defaults to 50 MiB.
 - `TALK_TRANSCRIBE_TIMEOUT`: transcription timeout in seconds. Defaults to 180.
+
+## Hermes skill creation from Talk
+
+The bridge can let Hermes create or update skills when the deployed Hermes profile has the `skills` toolset enabled. The default `HERMES_TOOLSETS` includes `skills`, so a trusted deployment can create, patch, edit, or delete skills using the normal Hermes skill tools.
+
+For visibility in Nextcloud Talk, `TALK_BRIDGE_SKILL_STATUS=1` is enabled by default. With that setting, the bridge instructs Hermes to state skill changes in the final Talk reply, for example:
+
+```text
+Skills changed: created canon-field-service-workflow; patched mannpro-custom-ubuntu-live-build
+```
+
+If no skill is created, Hermes should say so when the user specifically asked for a skill. Keep `HERMES_YOLO` and broad toolsets limited to trusted private assistants, because skill tools can write durable procedure files under the selected Hermes profile.
 
 ## Local SQLite memory service
 

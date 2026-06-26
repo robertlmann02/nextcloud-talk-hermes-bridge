@@ -48,6 +48,7 @@ TOOLSETS = os.environ.get(
     "terminal,file,code_execution,skills,memory,session_search,cronjob,web,vision,delegation",
 )
 SKILLS = os.environ.get("HERMES_SKILLS", "messaging-bridge-ops,hermes-agent")
+SKILL_STATUS_ENABLED = os.environ.get("TALK_BRIDGE_SKILL_STATUS", "1").lower() in {"1", "true", "yes", "on"}
 MAX_TURNS = os.environ.get("HERMES_MAX_TURNS", "90")
 SOFT_TIMEOUT = int(os.environ.get("TALK_BRIDGE_SOFT_TIMEOUT", "180"))
 HARD_TIMEOUT = int(os.environ.get("TALK_BRIDGE_HARD_TIMEOUT", "900"))
@@ -212,6 +213,15 @@ def clean(out: str) -> str:
 
 
 def build_prompt(message: str, actor: str, context_packet: str) -> str:
+    skill_status_rule = ""
+    if SKILL_STATUS_ENABLED:
+        skill_status_rule = """
+Skill-management visibility rule:
+- The skills toolset is enabled when `skills` is present in HERMES_TOOLSETS; this lets Hermes create, patch, edit, or delete skills through the normal skill tools.
+- If you create, patch, edit, delete, or otherwise change a Hermes skill, explicitly tell the Talk room in the final response.
+- Name every skill changed and classify the action, for example: `Skills changed: created <skill-name>; patched <skill-name>`.
+- If you decide a requested workflow does not need a new skill, say that no skill was created and why.
+""".strip()
     return f"""You are {ASSISTANT_NAME}, running inside a Nextcloud Talk bridge.
 
 Role/persona:
@@ -224,6 +234,7 @@ Bridge operating rules:
 - If a request is high-risk or destructive, ask for confirmation before doing it.
 - For vague follow-ups, resolve from the context packet first, then from memory/session search if available.
 - Output only the final user-facing reply text; no banners, metadata, or session information.
+{skill_status_rule}
 
 {context_packet}
 
