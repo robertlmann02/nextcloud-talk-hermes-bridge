@@ -15,6 +15,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 - Passes uploaded-file metadata from Talk events into the Hermes prompt.
 - Handles Talk file-share and voice-message webhook shapes that arrive as non-Note JSON Create events.
 - Optionally transcribes Talk voice/audio shares when the bridge host has local Nextcloud file access, ffmpeg, and whisper.cpp available.
+- Resolves Talk image shares into a local readable cache and instructs Hermes to call `vision_analyze`, so assistants can inspect uploaded pictures without asking the user to re-upload them elsewhere.
 - Supports Hermes profiles, skills, toolsets, and source labels.
 - Supports long-running jobs with background wait + heartbeat messages.
 - Uses only Python standard library at runtime.
@@ -132,6 +133,11 @@ Optional voice/audio transcription settings:
 - `TALK_WHISPER_MODEL`: whisper.cpp model path. If unset or missing, transcription is skipped.
 - `TALK_TRANSCRIBE_MAX_BYTES`: max audio file size to transcribe. Defaults to 50 MiB.
 - `TALK_TRANSCRIBE_TIMEOUT`: transcription timeout in seconds. Defaults to 180.
+
+Optional image/media vision settings:
+
+- `TALK_MEDIA_CACHE_DIR`: cache directory for user-readable copies of Talk image shares. Defaults to `~/.cache/talk-media-vision`.
+- `TALK_IMAGE_MAX_BYTES`: max image file size to copy for vision analysis. Defaults to 25 MiB.
 
 ## Hermes skill creation from Talk
 

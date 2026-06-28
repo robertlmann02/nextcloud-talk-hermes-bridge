@@ -87,6 +87,35 @@ class BridgeExtractTests(unittest.TestCase):
             ev = bridge.extract(payload)
         self.assertIn("Transcription: hello from the voice note", ev["message"])
 
+    def test_extract_adds_vision_context_for_image_payload(self):
+        bridge = load_bridge()
+        payload = base_payload(
+            '{"message":"{file}","parameters":{"file":{"type":"file","name":"photo.jpg","path":"/Talk/photo.jpg","mimetype":"image/jpeg"}}}',
+            activity_type="Activity",
+        )
+        with mock.patch.object(
+            bridge,
+            "describe_talk_image_for_vision",
+            return_value=(
+                "Local readable Talk image file for Hermes vision: /tmp/photo.jpg\n"
+                "Instruction: before answering about this upload, call the vision_analyze tool on that local image path."
+            ),
+        ):
+            ev = bridge.extract(payload)
+        self.assertIn("image/jpeg", ev["message"])
+        self.assertIn("Local readable Talk image file for Hermes vision: /tmp/photo.jpg", ev["message"])
+        self.assertIn("vision_analyze", ev["message"])
+
+    def test_extract_keeps_image_event_when_local_copy_unavailable(self):
+        bridge = load_bridge()
+        payload = base_payload(
+            '{"message":"{file}","parameters":{"file":{"type":"file","name":"photo.png","path":"/Talk/photo.png","mimetype":"image/png"}}}',
+            activity_type="Activity",
+        )
+        with mock.patch.object(bridge, "describe_talk_image_for_vision", return_value=""):
+            ev = bridge.extract(payload)
+        self.assertIn("This appears to be an image", ev["message"])
+
     def test_extract_rejects_unrelated_non_create_event(self):
         bridge = load_bridge()
         payload = base_payload('{"message":"not a share"}', activity_type="Update")

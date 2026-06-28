@@ -25,10 +25,11 @@ from pathlib import Path
 from .nextcloud_ai_context import build_nextcloud_ai_context
 from .talk_context import append_turn, build_context_packet, sync_local_memory_message
 from .talk_voice_transcribe import transcribe_from_talk_params
+from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "0.2.0")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
 HERMES = os.environ.get("HERMES_BIN", "hermes")
@@ -159,6 +160,15 @@ def extract(payload: dict) -> dict | None:
                 "until transcription is configured",
                 "because local transcription could not read this audio file",
             )
+    image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif")
+    looks_image_file = file_name.lower().endswith(image_exts) or file_path.lower().endswith(image_exts)
+    is_image_payload = str(mime_type).lower().startswith("image/") or looks_image_file
+    if is_image_payload:
+        vision_context = describe_talk_image_for_vision(params, display_name=file_name or file_path or "uploaded image")
+        if vision_context:
+            msg = (msg + "\n" + vision_context).strip()
+        else:
+            msg = (msg + "\nThis appears to be an image, but the bridge could not resolve a local readable copy yet.").strip()
     msg = strip_msg(msg)
     if not msg:
         return None

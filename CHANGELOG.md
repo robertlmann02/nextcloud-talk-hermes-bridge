@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
 - Add Talk-visible Hermes skill-management guidance: when the `skills` toolset is enabled, Hermes is prompted to report created/updated/deleted skill names in the final Nextcloud Talk reply.
+- Add Talk image-share vision handling: the bridge resolves uploaded/shared images to a local readable cache and injects a `vision_analyze` instruction so Hermes can inspect pictures directly from Nextcloud Talk without asking users for an extra upload step.
+- Promote the bridge to version 1.0.0 after production rollout across the managed Talk bot fleet.
 
 ## 0.2.0
 
