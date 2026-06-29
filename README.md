@@ -205,3 +205,19 @@ docker build -t nextcloud-talk-hermes-bridge:local .
 
 For App Store packaging details, see `EXAPP_SUBMISSION.md`.
 
+
+## Talk slash commands
+
+Nextcloud Talk no longer provides the old native chat-command system for bots, so Hermes Talk Bridge emulates useful Telegram-style commands in normal Talk messages. Users can type these directly in a bot room, optionally prefixed with the assistant name, for example `/status` or `Assistant /status`.
+
+| Command | Purpose |
+|---|---|
+| `/help` | Show available bridge commands. |
+| `/status` | Show bridge, Hermes profile, memory namespace, and toolset status. |
+| `/memory` | Show whether local Mann_Memory / Talk context is enabled and configured. |
+| `/tools` | Show enabled Hermes toolsets. |
+| `/reset` | Clear the current room's short-term Talk context while retaining durable Mann_Memory. |
+| `/version` | Show bridge app/version information. |
+| `/queue` | Explain long-running/background task behavior and timeout settings. |
+
+Slash commands are handled by the bridge before invoking Hermes when possible, so lightweight status/reset commands stay fast and do not spend model tokens.

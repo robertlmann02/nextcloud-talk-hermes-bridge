@@ -60,6 +60,19 @@ def append_turn(token: str, role: str, actor: str, message: str, message_id: int
     _update_working(working_path, record)
 
 
+def reset_context(token: str, app_name: str | None = None) -> int:
+    """Delete short-term room history/working-state files for a Talk room."""
+    removed = 0
+    for path in _paths(token, app_name):
+        try:
+            if path.exists():
+                path.unlink()
+                removed += 1
+        except Exception:
+            pass
+    return removed
+
+
 def _read_history(path: Path, limit: int = DEFAULT_CONTEXT_TURNS):
     if not path.exists():
         return []

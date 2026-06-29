@@ -155,6 +155,25 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertIn("Skills changed:", prompt)
         self.assertIn("Name every skill changed", prompt)
 
+    def test_slash_status_posts_without_calling_hermes(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "/status", "message_id": 7, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "ask") as ask, mock.patch.object(bridge, "post", return_value=201) as post:
+            bridge.handle(ev)
+        ask.assert_not_called()
+        posted = post.call_args.args[1]
+        self.assertIn("status", posted.lower())
+        self.assertIn("Hermes profile", posted)
+        self.assertIn("Toolsets", posted)
+
+    def test_slash_reset_uses_context_reset(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "Assistant /reset", "message_id": 8, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "reset_context", return_value=2) as reset, mock.patch.object(bridge, "post", return_value=201) as post:
+            bridge.handle(ev)
+        reset.assert_called_once_with("room-token", bridge.APP_NAME)
+        self.assertIn("Removed 2 context file", post.call_args.args[1])
+
 
 if __name__ == "__main__":
     unittest.main()

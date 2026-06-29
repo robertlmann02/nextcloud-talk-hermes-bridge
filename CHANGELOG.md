@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Add built-in Talk slash-command emulation for `/help`, `/status`, `/memory`, `/tools`, `/reset`, `/version`, and `/queue` so Nextcloud Talk users can use Telegram-style text commands through the bridge even though native Talk chat commands were removed in favor of bots.
+- Add regression coverage proving slash commands post directly from the bridge without spawning Hermes for simple status/reset commands.
+
 ## 1.0.0
 
 - Add Talk-visible Hermes skill-management guidance: when the `skills` toolset is enabled, Hermes is prompted to report created/updated/deleted skill names in the final Nextcloud Talk reply.

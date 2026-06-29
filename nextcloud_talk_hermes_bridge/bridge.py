@@ -23,13 +23,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .nextcloud_ai_context import build_nextcloud_ai_context
-from .talk_context import append_turn, build_context_packet, sync_local_memory_message
+from .talk_context import append_turn, build_context_packet, reset_context, sync_local_memory_message
 from .talk_voice_transcribe import transcribe_from_talk_params
 from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.1")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
 HERMES = os.environ.get("HERMES_BIN", "hermes")
@@ -178,6 +178,79 @@ def extract(payload: dict) -> dict | None:
         "message_id": int(obj.get("id", 0) or 0),
         "actor_name": actor.get("name", "User"),
     }
+
+
+
+
+def _bool_env(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+def _extract_slash_command(message: str) -> tuple[str, str] | None:
+    """Return (command, args) when a Talk message is a bridge slash command."""
+    msg = strip_msg(message or "")
+    m = re.match(r"^\s*(?:(?:[A-Za-z][\w .-]{0,48})\s+)?/(help|status|memory|tools|reset|version|queue)\b\s*(.*)$", msg, re.I | re.S)
+    if not m:
+        return None
+    return m.group(1).lower(), (m.group(2) or "").strip()
+
+
+def handle_slash_command(ev: dict, namespace: str) -> str | None:
+    parsed = _extract_slash_command(ev.get("message", ""))
+    if not parsed:
+        return None
+    command, args = parsed
+    if command == "help":
+        return (
+            f"{ASSISTANT_NAME} bridge commands:\n"
+            "• /help — show this help\n"
+            "• /status — show bridge/profile/memory status\n"
+            "• /memory — show Mann_Memory/local context status\n"
+            "• /tools — show enabled Hermes toolsets\n"
+            "• /reset — clear this room's short-term working context\n"
+            "• /version — show bridge version\n"
+            "• /queue — explain long-running/background task behavior"
+        )
+    if command == "status":
+        db_path = os.environ.get("TALK_MEMORY_DB_PATH") or os.environ.get("DEUCE_LOCAL_MEMORY_DB") or ""
+        db_status = "configured" if db_path else "not configured"
+        if db_path:
+            db_status += ", exists" if Path(db_path).expanduser().exists() else ", missing"
+        return (
+            f"{ASSISTANT_NAME} status:\n"
+            f"• Bridge: online\n"
+            f"• App/version: {APP_ID} {APP_VERSION}\n"
+            f"• Hermes profile: {HERMES_PROFILE}\n"
+            f"• Memory namespace: {namespace}\n"
+            f"• Mann_Memory/local DB: {db_status}\n"
+            f"• Toolsets: {TOOLSETS}"
+        )
+    if command == "memory":
+        db_path = os.environ.get("TALK_MEMORY_DB_PATH") or os.environ.get("DEUCE_LOCAL_MEMORY_DB") or ""
+        enabled = _bool_env("TALK_LOCAL_MEMORY_CONTEXT", os.environ.get("TALK_LOCAL_HONCHO_CONTEXT", "1"))
+        exists = Path(db_path).expanduser().exists() if db_path else False
+        return (
+            "Mann_Memory/local context status:\n"
+            f"• Enabled: {enabled}\n"
+            f"• Namespace: {namespace}\n"
+            f"• DB path configured: {bool(db_path)}\n"
+            f"• DB exists: {exists}\n"
+            "• /reset clears only short-term room context; durable Mann_Memory is retained."
+        )
+    if command == "tools":
+        return f"Enabled Hermes toolsets for {ASSISTANT_NAME}:\n{TOOLSETS}"
+    if command == "reset":
+        removed = reset_context(ev.get("token", ""), APP_NAME)
+        return f"Reset this room's short-term Talk context for {ASSISTANT_NAME}. Removed {removed} context file(s). Durable Mann_Memory was not deleted."
+    if command == "version":
+        return f"{ASSISTANT_NAME} is running {APP_ID} version {APP_VERSION}."
+    if command == "queue":
+        return (
+            "Long-running Talk tasks are handled by the bridge background/heartbeat flow. "
+            f"Current soft timeout: {SOFT_TIMEOUT}s; hard timeout: {HARD_TIMEOUT}s; heartbeat: {HEARTBEAT_INTERVAL}s. "
+            "Send the task normally; I will acknowledge it and keep working until it finishes or reaches the hard timeout."
+        )
+    return None
 
 
 def clean(out: str) -> str:
@@ -378,6 +451,12 @@ def post(token: str, message: str, reply_to: int = 0) -> int | None:
 def handle(ev: dict) -> None:
     log(f"message from {ev['actor_name']} token={ev['token']} id={ev['message_id']}: {ev['message'][:250]!r}")
     namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
+    command_reply = handle_slash_command(ev, namespace)
+    if command_reply is not None:
+        append_turn(ev["token"], "user", ev["actor_name"], ev["message"], ev["message_id"], app_name=APP_NAME)
+        append_turn(ev["token"], "assistant", ASSISTANT_NAME, command_reply, 0, app_name=APP_NAME)
+        post(ev["token"], command_reply, ev["message_id"])
+        return
     append_turn(ev["token"], "user", ev["actor_name"], ev["message"], ev["message_id"], app_name=APP_NAME)
     sync_local_memory_message(ev["token"], "user", ev["actor_name"], ev["message"], namespace=namespace, message_id=ev["message_id"])
     context_packet = build_context_packet(ev["token"], APP_NAME, ASSISTANT_NAME, current_message=ev["message"], namespace=namespace)
