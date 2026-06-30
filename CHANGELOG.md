@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Harden optional Talk voice transcription and media/image resolution so missing local helper commands such as `docker`, `sudo`, `ffmpeg`, or whisper.cpp return best-effort fallbacks instead of crashing webhook extraction.
+- Add regression coverage for Docker-unavailable voice-message handling and missing optional media helper commands.
+- Keep public example skill preloads generic and correct App Store submission notes to the current release tag.
+
 ## 1.0.1
 
 - Add built-in Talk slash-command emulation for `/help`, `/status`, `/memory`, `/tools`, `/reset`, `/version`, and `/queue` so Nextcloud Talk users can use Telegram-style text commands through the bridge even though native Talk chat commands were removed in favor of bots.

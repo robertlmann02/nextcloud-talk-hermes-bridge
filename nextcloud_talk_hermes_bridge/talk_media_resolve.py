@@ -20,7 +20,17 @@ MAX_IMAGE_BYTES = int(os.environ.get("TALK_IMAGE_MAX_BYTES", str(25 * 1024 * 102
 
 
 def _run(cmd: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    """Run optional local helper commands without letting missing tools crash extraction."""
+    try:
+        return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    except FileNotFoundError as exc:
+        return subprocess.CompletedProcess(cmd, 127, "", str(exc))
+    except PermissionError as exc:
+        return subprocess.CompletedProcess(cmd, 126, "", str(exc))
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(cmd, 124, exc.stdout or "", exc.stderr or str(exc))
+    except OSError as exc:
+        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
 def _safe_suffix(path: Path, display_name: str = "") -> str:
