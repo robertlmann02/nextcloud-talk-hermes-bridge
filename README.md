@@ -11,6 +11,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 - Posts signed bot replies back to the same Talk room.
 - Ignores bot-originated messages to avoid reply loops.
 - Preserves short-term per-room context for follow-ups like “make it shorter” or “continue that.”
+- Adds a stale-context guard that treats the newest user message as controlling and tells Hermes to use session/source/git history for “what we had before” style requests instead of blindly trusting old room state.
 - Optionally enriches prompts from a local SQLite memory service: workspace, peers, sessions, messages, conclusions, and representation cards.
 - Passes uploaded-file metadata from Talk events into the Hermes prompt.
 - Handles Talk file-share and voice-message webhook shapes that arrive as non-Note JSON Create events.
@@ -111,7 +112,7 @@ The bridge handles:
 - `HERMES_YOLO`: `1` enables non-interactive tool execution. Set to `0` if you want a safer/default Hermes mode.
 - `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
 - `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
-- `TALK_CONTEXT_DIR`: where room context JSONL files are stored.
+- `TALK_CONTEXT_DIR`: where room context JSONL files are stored. The generated context packet includes a priority rule: newest user message first, room state lower priority, and source/session/git history for “what was there before” requests.
 - `TALK_LOCAL_MEMORY_CONTEXT`: `1`/`0` toggle for local SQLite memory context injection. Defaults to `1`.
 - `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `personal`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
 - `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.

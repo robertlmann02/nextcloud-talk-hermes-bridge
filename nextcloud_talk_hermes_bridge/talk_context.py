@@ -146,12 +146,17 @@ def build_context_packet(
         "NEXTCLOUD TALK CONTEXT PACKET",
         f"Assistant/persona for this bridge: {assistant_name}.",
         f"Room token/session key: {_safe_token(token)}.",
-        "Use this packet as authoritative short-term room context for follow-up messages.",
-        "If the current message is vague (that/it/continue/make it shorter/the response/option B), resolve it from Recent room turns and Working room state before answering.",
-        "If this packet is still insufficient and tools are available, use session_search/memory before asking the user to repeat themself.",
+        "CONTEXT PRIORITY / STALE-CONTEXT GUARD:",
+        "1. Newest user message controls the task.",
+        "2. Room state is background only; ignore stale/unrelated items.",
+        "3. For vague follow-ups (that/it/continue/what we had before), resolve from the most relevant evidence, not just the latest room topic.",
+        "4. For page/repo/file/GitHub/before wording, use tools when available: session_search for prior wording, then the original source or git history as source of truth.",
+        "5. If room state conflicts with source/history, trust the newest request plus source/history.",
         "Do not mix identities across assistants, profiles, or users.",
         "",
-        "Working room state:",
+        f"Current user message (highest priority): {current_message.strip() or '(not provided)'}",
+        "",
+        "Working room state (lower priority; may be stale):",
     ]
     if working:
         for k in ["current_topic_hint", "last_user_actor", "last_user_message", "last_assistant_reply"]:

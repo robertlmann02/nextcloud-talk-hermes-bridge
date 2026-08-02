@@ -155,6 +155,19 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertIn("Skills changed:", prompt)
         self.assertIn("Name every skill changed", prompt)
 
+    def test_ask_exposes_current_request_and_source_history_rule(self):
+        bridge = load_bridge()
+        popen_result = mock.Mock()
+        popen_result.communicate.return_value = ("Done", "")
+        popen_result.returncode = 0
+        with mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
+            bridge.ask("what did we have before on the GitHub page?", "Alex", "STALE ROOM CONTEXT", token="room-token", reply_to=42)
+        cmd = popen.call_args.args[0]
+        prompt = cmd[cmd.index("-q") + 1]
+        self.assertIn("current user message as the controlling request", prompt)
+        self.assertIn("git/file history", prompt)
+        self.assertIn("STALE ROOM CONTEXT", prompt)
+
     def test_slash_status_posts_without_calling_hermes(self):
         bridge = load_bridge()
         ev = {"token": "room-token", "message": "/status", "message_id": 7, "actor_name": "Alex"}

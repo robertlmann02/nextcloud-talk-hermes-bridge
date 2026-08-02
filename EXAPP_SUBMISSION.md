@@ -8,7 +8,7 @@ Hermes Talk Bridge is packaged as a Nextcloud External App (ExApp) using AppAPI.
 - Name: Hermes Talk Bridge
 - Categories: Integration, Social & communication, AI
 - Source repository: https://github.com/robertlmann02/nextcloud-talk-hermes-bridge
-- Docker image: `ghcr.io/robertlmann02/nextcloud-talk-hermes-bridge:1.0.2`
+- Docker image: `ghcr.io/robertlmann02/nextcloud-talk-hermes-bridge:1.0.3`
 - Required AppAPI scopes: `TALK`, `TALK_BOT`, `FILES`
 - Public proxy routes declared for `/health`, `/heartbeat`, `/init`, `/enabled`, and `/hook`; `/hook` remains protected by signed Talk bot webhook verification.
 

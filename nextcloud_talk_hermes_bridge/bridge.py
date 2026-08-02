@@ -29,7 +29,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.1")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.3")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
 HERMES = os.environ.get("HERMES_BIN", "hermes")
@@ -315,7 +315,9 @@ Bridge operating rules:
 - Use Hermes tools to perform safe requested work when possible, then verify and report the result.
 - Do not claim to access a file, email, system, or account unless tool output or provided context gives you that access/content.
 - If a request is high-risk or destructive, ask for confirmation before doing it.
-- For vague follow-ups, resolve from the context packet first, then from memory/session search if available.
+- For vague follow-ups, use the current user message as the controlling request. Treat room state as lower-priority context that may be stale.
+- When the user asks what was on a page/repo/file/GitHub or what existed before, use tools to inspect session history and the original source or git/file history before editing or answering.
+- If context packet details conflict with retrieved source/history, trust the current user request plus source/history.
 - Output only the final user-facing reply text; no banners, metadata, or session information.
 {skill_status_rule}
 

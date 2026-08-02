@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Add a Talk context-priority guard so vague follow-ups prioritize the newest user request and source/session/git history over stale room state.
+
 ## 1.0.2
 
 - Harden optional Talk voice transcription and media/image resolution so missing local helper commands such as `docker`, `sudo`, `ffmpeg`, or whisper.cpp return best-effort fallbacks instead of crashing webhook extraction.
