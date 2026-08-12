@@ -15,11 +15,15 @@ classifiers = [
 dependencies = []
 
 [tool.setuptools.packages.find]
-include = ["nextcloud_talk_hermes_bridge*"]
+include = ["nextcloud_talk_hermes_bridge*", "hermes_plugins*"]
 exclude = ["systemd*"]
+
+[tool.setuptools.package-data]
+"hermes_plugins.nextcloud_talk" = ["plugin.yaml"]
 
 [project.scripts]
 nextcloud-talk-hermes-bridge = "nextcloud_talk_hermes_bridge.bridge:main"
+nextcloud-talk-hermes-cron-install = "nextcloud_talk_hermes_bridge.hermes_cron_install:main"
 
 [tool.ruff]
 line-length = 120
