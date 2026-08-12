@@ -104,5 +104,5 @@ def describe_talk_image_for_vision(params, display_name: str = "uploaded image")
     return (
         f"Local readable Talk image file for Hermes vision: {readable}\n"
         "Instruction: before answering about this upload, call the vision_analyze tool on that local image path. "
-        "Do not ask Robert to re-upload it or perform an extra picture step."
+        "Do not ask the user to re-upload it or perform an extra picture step."
     )

@@ -2,7 +2,8 @@
 """Nextcloud Talk webhook bridge for Hermes Agent.
 
 Receives signed Nextcloud Talk bot webhooks, invokes `hermes chat -q`, and posts
-Hermes' final response back into the Talk room using signed bot messages.
+Hermes' final response back into the Talk room using signed bot messages. It
+also exposes an authenticated delivery endpoint for proactive/scheduled posts.
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge"
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
 APP_VERSION = os.environ.get("APP_VERSION", "1.0.3")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
+DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
 HERMES = os.environ.get("HERMES_BIN", "hermes")
 HERMES_PROFILE = os.environ.get("HERMES_PROFILE", "default")
@@ -78,6 +80,19 @@ def verify(headers, raw: bytes) -> bool:
         return False
     exp = hmac.new(SECRET.encode(), rnd.encode() + raw, hashlib.sha256).hexdigest()
     return hmac.compare_digest(exp, sig.lower())
+
+
+def verify_deliver(headers) -> bool:
+    """Verify the bridge-local bearer token for proactive delivery calls."""
+    deliver_secret = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or DELIVER_SECRET
+    if not deliver_secret:
+        log("missing TALK_DELIVER_SECRET/HERMES_TALK_DELIVER_SECRET; rejecting delivery")
+        return False
+    auth = headers.get("Authorization", "")
+    prefix = "Bearer "
+    if not auth.startswith(prefix):
+        return False
+    return hmac.compare_digest(auth[len(prefix):].strip(), deliver_secret)
 
 
 def extract(payload: dict) -> dict | None:
@@ -450,6 +465,31 @@ def post(token: str, message: str, reply_to: int = 0) -> int | None:
         return None
 
 
+def deliver(token: str, message: str, actor: str = "Proactive delivery", reply_to: int = 0) -> dict:
+    """Post an on-demand outbound message and record it in room context/memory.
+
+    This is the bridge-side primitive that lets Hermes cron/webhook runs treat a
+    Nextcloud Talk room as a first-class delivery target. The memory write is
+    intentionally part of the success path so follow-up messages like "what did
+    you mean by that?" can see the proactive assistant turn.
+    """
+    token = (token or "").strip()
+    message = (message or "").strip()
+    actor = (actor or "Proactive delivery").strip()
+    if not token:
+        return {"ok": False, "error": "missing room_token"}
+    if not message:
+        return {"ok": False, "error": "missing message"}
+    log(f"proactive delivery requested token={token} actor={actor!r} message={message[:250]!r}")
+    status = post(token, message, reply_to)
+    if status is None:
+        return {"ok": False, "error": "post failed"}
+    namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
+    append_turn(token, "assistant", ASSISTANT_NAME, message, 0, app_name=APP_NAME)
+    sync_local_memory_message(token, "assistant", ASSISTANT_NAME, message, namespace=namespace)
+    return {"ok": True, "status": "delivered", "room_token": token, "post_status": status}
+
+
 def handle(ev: dict) -> None:
     log(f"message from {ev['actor_name']} token={ev['token']} id={ev['message_id']}: {ev['message'][:250]!r}")
     namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
@@ -503,6 +543,29 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/init":
             self._write_json(200, {})
+            return
+        if parsed.path == "/deliver":
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            if not verify_deliver(self.headers):
+                self.send_response(401)
+                self.end_headers()
+                return
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except Exception as e:
+                log(f"bad deliver json {e!r}")
+                self._write_json(400, {"ok": False, "error": "invalid json"})
+                return
+            token = str(payload.get("room_token") or payload.get("token") or "")
+            message = str(payload.get("message") or "")
+            actor = str(payload.get("actor") or "Proactive delivery")
+            try:
+                reply_to = int(payload.get("reply_to") or payload.get("replyTo") or 0)
+            except (TypeError, ValueError):
+                self._write_json(400, {"ok": False, "error": "invalid reply_to"})
+                return
+            result = deliver(token, message, actor=actor, reply_to=reply_to)
+            self._write_json(200 if result.get("ok") else 502 if result.get("error") == "post failed" else 400, result)
             return
         if parsed.path != "/hook":
             self.send_response(404)

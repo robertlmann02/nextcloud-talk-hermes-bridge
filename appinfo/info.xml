@@ -4,7 +4,7 @@
   <name>Hermes Talk Bridge</name>
   <summary>Bridge Nextcloud Talk bot messages to Hermes Agent.</summary>
   <description><![CDATA[
-Hermes Talk Bridge is a Nextcloud External App that connects Nextcloud Talk bot webhook events to a Hermes Agent backend. It verifies Talk webhook signatures, runs Hermes with an administrator-selected profile, and posts signed bot replies back into the same Talk room.
+Hermes Talk Bridge is a Nextcloud External App that connects Nextcloud Talk bot webhook events to a Hermes Agent backend. It verifies Talk webhook signatures, runs Hermes with an administrator-selected profile, posts signed bot replies back into the same Talk room, and supports authenticated proactive delivery for scheduled reports and alerts.
 
 The external service runs in an AppAPI-managed Docker container. Administrators control the Hermes provider/profile, enabled toolsets, timeout limits, memory settings, and optional document/voice context features through environment variables. No provider API keys or Nextcloud app passwords are bundled in this app package.
   ]]></description>
@@ -34,7 +34,7 @@ The external service runs in an AppAPI-managed Docker container. Administrators 
     </scopes>
     <routes>
       <route>
-        <url>^/(health|heartbeat|init|enabled|hook)$</url>
+        <url>^/(health|heartbeat|init|enabled|hook|deliver)$</url>
         <verb>GET,POST,PUT</verb>
         <access_level>PUBLIC</access_level>
         <headers_to_exclude>[]</headers_to_exclude>

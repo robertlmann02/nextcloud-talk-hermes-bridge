@@ -1,4 +1,5 @@
 import importlib
+import io
 import json
 import os
 import unittest
@@ -7,6 +8,7 @@ from unittest import mock
 
 def load_bridge():
     os.environ.setdefault("TALK_BOT_SECRET", "test-secret")
+    os.environ.setdefault("TALK_DELIVER_SECRET", "deliver-secret")
     os.environ.setdefault("NEXTCLOUD_URL", "https://nextcloud.example.test")
     return importlib.import_module("nextcloud_talk_hermes_bridge.bridge")
 
@@ -61,6 +63,45 @@ class ExAppEndpointTests(unittest.TestCase):
         h.do_POST()
         self.assertEqual(h.status, 200)
         self.assertEqual(json.loads(h.body.decode()), {})
+
+    def test_deliver_requires_bearer_token(self):
+        h = self.make_handler("/deliver")
+        h.rfile = io.BytesIO(b'{"room_token":"abc","message":"hello"}')
+        h.headers = {"Content-Length": str(len(h.rfile.getvalue()))}
+        h.do_POST()
+        self.assertEqual(h.status, 401)
+
+    def test_deliver_posts_and_records_assistant_turn(self):
+        payload = b'{"room_token":"abc123","message":"scheduled report","actor":"cron"}'
+        h = self.make_handler("/deliver")
+        h.rfile = io.BytesIO(payload)
+        h.headers = {"Content-Length": str(len(payload)), "Authorization": "Bearer deliver-secret"}
+        bridge = load_bridge()
+        with mock.patch.object(bridge, "post", return_value=201) as post, \
+             mock.patch.object(bridge, "append_turn") as append_turn, \
+             mock.patch.object(bridge, "sync_local_memory_message") as sync_memory:
+            h.do_POST()
+        self.assertEqual(h.status, 200)
+        self.assertEqual(json.loads(h.body.decode()), {
+            "ok": True,
+            "status": "delivered",
+            "room_token": "abc123",
+            "post_status": 201,
+        })
+        post.assert_called_once_with("abc123", "scheduled report", 0)
+        append_turn.assert_called_once_with(
+            "abc123", "assistant", bridge.ASSISTANT_NAME, "scheduled report", 0, app_name=bridge.APP_NAME
+        )
+        sync_memory.assert_called_once()
+
+    def test_deliver_validates_payload(self):
+        payload = b'{"room_token":"abc123"}'
+        h = self.make_handler("/deliver")
+        h.rfile = io.BytesIO(payload)
+        h.headers = {"Content-Length": str(len(payload)), "Authorization": "Bearer deliver-secret"}
+        h.do_POST()
+        self.assertEqual(h.status, 400)
+        self.assertEqual(json.loads(h.body.decode()), {"ok": False, "error": "missing message"})
 
 
 if __name__ == "__main__":
