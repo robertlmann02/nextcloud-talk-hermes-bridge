@@ -30,7 +30,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.3")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.4")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
@@ -486,7 +486,10 @@ def deliver(token: str, message: str, actor: str = "Proactive delivery", reply_t
         return {"ok": False, "error": "post failed"}
     namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
     append_turn(token, "assistant", ASSISTANT_NAME, message, 0, app_name=APP_NAME)
-    sync_local_memory_message(token, "assistant", ASSISTANT_NAME, message, namespace=namespace)
+    try:
+        sync_local_memory_message(token, "assistant", ASSISTANT_NAME, message, namespace=namespace)
+    except Exception as e:
+        log(f"proactive memory sync failed after successful post: {e!r}")
     return {"ok": True, "status": "delivered", "room_token": token, "post_status": status}
 
 

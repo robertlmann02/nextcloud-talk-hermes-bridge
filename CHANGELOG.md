@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- Ship native Hermes `deliver=nextcloud_talk` cron delivery support through the bridge-owned platform plugin and installer.
+- Add `NEXTCLOUD_TALK_*` configuration examples so scheduled reports, monitors, and reminders can post into Nextcloud Talk without per-job scripts.
+- Keep `/deliver` successful after a Talk post even if optional local memory sync fails, so a bad memory database cannot make Hermes mark an already-posted cron message as failed.
+
 ## 1.0.3
 
 - Add a Talk context-priority guard so vague follow-ups prioritize the newest user request and source/session/git history over stale room state.

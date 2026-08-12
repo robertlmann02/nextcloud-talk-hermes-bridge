@@ -94,6 +94,24 @@ class ExAppEndpointTests(unittest.TestCase):
         )
         sync_memory.assert_called_once()
 
+    def test_deliver_still_succeeds_when_optional_memory_sync_fails(self):
+        payload = b'{"room_token":"abc123","message":"scheduled report","actor":"cron"}'
+        h = self.make_handler("/deliver")
+        h.rfile = io.BytesIO(payload)
+        h.headers = {"Content-Length": str(len(payload)), "Authorization": "Bearer deliver-secret"}
+        bridge = load_bridge()
+        with mock.patch.object(bridge, "post", return_value=201), \
+             mock.patch.object(bridge, "append_turn"), \
+             mock.patch.object(bridge, "sync_local_memory_message", side_effect=RuntimeError("bad memory db")):
+            h.do_POST()
+        self.assertEqual(h.status, 200)
+        self.assertEqual(json.loads(h.body.decode()), {
+            "ok": True,
+            "status": "delivered",
+            "room_token": "abc123",
+            "post_status": 201,
+        })
+
     def test_deliver_validates_payload(self):
         payload = b'{"room_token":"abc123"}'
         h = self.make_handler("/deliver")

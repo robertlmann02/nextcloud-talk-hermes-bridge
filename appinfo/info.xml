@@ -8,7 +8,7 @@ Hermes Talk Bridge is a Nextcloud External App that connects Nextcloud Talk bot 
 
 The external service runs in an AppAPI-managed Docker container. Administrators control the Hermes provider/profile, enabled toolsets, timeout limits, memory settings, and optional document/voice context features through environment variables. No provider API keys or Nextcloud app passwords are bundled in this app package.
   ]]></description>
-  <version>1.0.3</version>
+  <version>1.0.4</version>
   <licence>MIT</licence>
   <author mail="robertlmann02@users.noreply.github.com" homepage="https://github.com/robertlmann02">Robert Mann</author>
   <namespace>HermesTalkBridge</namespace>
