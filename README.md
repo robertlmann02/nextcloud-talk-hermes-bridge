@@ -245,9 +245,9 @@ Nextcloud Talk no longer provides the old native chat-command system for bots, s
 |---|---|
 | `/help` | Show available bridge commands. |
 | `/status` | Show bridge, Hermes profile, memory namespace, and toolset status. |
-| `/memory` | Show whether local Mann_Memory / Talk context is enabled and configured. |
+| `/memory` | Show whether local memory / Talk context is enabled and configured. |
 | `/tools` | Show enabled Hermes toolsets. |
-| `/reset` | Clear the current room's short-term Talk context while retaining durable Mann_Memory. |
+| `/reset` | Clear the current room's short-term Talk context while retaining durable memory. |
 | `/version` | Show bridge app/version information. |
 | `/queue` | Explain long-running/background task behavior and timeout settings. |
 
