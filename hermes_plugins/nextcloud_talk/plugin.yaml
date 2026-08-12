@@ -1,0 +1,22 @@
+name: nextcloud_talk-platform
+label: Nextcloud Talk
+kind: platform
+version: 1.0.0
+description: >
+  Native Hermes cron delivery target for Nextcloud Talk bridge /deliver endpoints.
+  Registers deliver=nextcloud_talk with a standalone HTTP sender.
+author: Nextcloud Talk Hermes Bridge contributors
+requires_env:
+  - name: NEXTCLOUD_TALK_DELIVER_URL
+    description: "Nextcloud Talk Hermes Bridge /deliver endpoint URL."
+    prompt: "Bridge /deliver URL"
+    password: false
+  - name: NEXTCLOUD_TALK_DELIVER_SECRET
+    description: "Bearer token accepted by the bridge /deliver endpoint. Keep this separate from Talk webhook secrets."
+    prompt: "Bridge delivery bearer secret"
+    password: true
+optional_env:
+  - name: NEXTCLOUD_TALK_HOME_ROOM
+    description: "Default Talk room token for cron delivery with deliver=nextcloud_talk."
+    prompt: "Default Talk room token"
+    password: false

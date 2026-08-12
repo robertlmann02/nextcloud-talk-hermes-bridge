@@ -143,9 +143,31 @@ Optional image/media vision settings:
 - `TALK_MEDIA_CACHE_DIR`: cache directory for user-readable copies of Talk image shares. Defaults to `~/.cache/talk-media-vision`.
 - `TALK_IMAGE_MAX_BYTES`: max image file size to copy for vision analysis. Defaults to 25 MiB.
 
-## Proactive delivery for cron jobs and alerts
+## Proactive delivery and native Hermes cron delivery
 
-`POST /deliver` lets a trusted local scheduler, Hermes cron job wrapper, or monitoring webhook post a bot message into a Talk room without waiting for an inbound Talk webhook first.
+`POST /deliver` lets a trusted local scheduler, Hermes cron job, or monitoring webhook post a bot message into a Talk room without waiting for an inbound Talk webhook first.
+
+For Hermes cron, this repository ships a native `nextcloud_talk` delivery integration. Install the bridge package, then install the bundled Hermes platform into the Hermes Agent tree:
+
+```bash
+nextcloud-talk-hermes-cron-install --hermes-repo /path/to/hermes-agent
+```
+
+Set the Hermes gateway environment:
+
+```bash
+NEXTCLOUD_TALK_DELIVER_URL=http://127.0.0.1:8788/deliver
+NEXTCLOUD_TALK_HOME_ROOM=abc123
+NEXTCLOUD_TALK_DELIVER_SECRET=replace-with-bridge-delivery-api-key
+```
+
+After restarting Hermes gateway, cron jobs can use native delivery:
+
+```bash
+hermes cron create "0 8 * * *" "Write a short morning status report." --deliver nextcloud_talk
+```
+
+This is not a per-job script. Hermes registers `nextcloud_talk` as a platform delivery target and uses the bridge's standalone `/deliver` sender for scheduled output.
 
 ```bash
 curl -X POST http://127.0.0.1:8788/deliver \
