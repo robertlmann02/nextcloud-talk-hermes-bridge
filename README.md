@@ -9,6 +9,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 
 - Verifies Nextcloud Talk webhook signatures.
 - Posts signed bot replies back to the same Talk room.
+- Supports authenticated proactive delivery for scheduled reports, monitoring alerts, and Hermes cron/webhook jobs via `POST /deliver`.
 - Ignores bot-originated messages to avoid reply loops.
 - Preserves short-term per-room context for follow-ups like “make it shorter” or “continue that.”
 - Adds a stale-context guard that treats the newest user message as controlling and tells Hermes to use session/source/git history for “what we had before” style requests instead of blindly trusting old room state.
@@ -43,6 +44,7 @@ Edit `.env`:
 
 ```bash
 TALK_BOT_SECRET=replace-with-nextcloud-talk-bot-secret
+TALK_DELIVER_SECRET=replace-with-bridge-delivery-api-key
 NEXTCLOUD_URL=https://nextcloud.example.com
 TALK_BRIDGE_PORT=8788
 HERMES_BIN=/path/to/hermes
@@ -106,6 +108,7 @@ The bridge handles:
 ## Important configuration
 
 - `HERMES_PROFILE`: Hermes profile to run, such as `default` or a dedicated assistant profile.
+- `TALK_DELIVER_SECRET`: separate bearer token for proactive outbound delivery calls to `/deliver`. Keep this distinct from `TALK_BOT_SECRET`.
 - `HERMES_TOOLSETS`: comma-separated toolsets exposed to Hermes.
 - `HERMES_SKILLS`: comma-separated skills to pre-load.
 - `TALK_BRIDGE_SKILL_STATUS`: `1`/`0` toggle. When enabled, the bridge prompt tells Hermes to explicitly report any skill creation, patch, edit, or deletion in its final Talk reply, including the skill names changed.
@@ -139,6 +142,32 @@ Optional image/media vision settings:
 
 - `TALK_MEDIA_CACHE_DIR`: cache directory for user-readable copies of Talk image shares. Defaults to `~/.cache/talk-media-vision`.
 - `TALK_IMAGE_MAX_BYTES`: max image file size to copy for vision analysis. Defaults to 25 MiB.
+
+## Proactive delivery for cron jobs and alerts
+
+`POST /deliver` lets a trusted local scheduler, Hermes cron job wrapper, or monitoring webhook post a bot message into a Talk room without waiting for an inbound Talk webhook first.
+
+```bash
+curl -X POST http://127.0.0.1:8788/deliver \
+  -H "Authorization: Bearer <delivery-secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"room_token":"abc123","message":"Daily status report: all services healthy."}'
+```
+
+Request fields:
+
+- `room_token` or `token`: required Talk room token.
+- `message`: required bot message text.
+- `actor`: optional source label for bridge logs, for example `cron` or `monitoring`.
+- `reply_to` / `replyTo`: optional Talk message ID to reply to; usually omitted for scheduled posts.
+
+Responses are JSON. A successful delivery returns:
+
+```json
+{"ok": true, "status": "delivered", "room_token": "abc123", "post_status": 200}
+```
+
+When delivery succeeds, the bridge records the outbound assistant message in the same short-term room context and local SQLite memory path used for normal reactive replies. That way, if a user responds to a scheduled report with “what did you mean by that?”, Hermes can see the proactive message as prior assistant context.
 
 ## Hermes skill creation from Talk
 
@@ -194,6 +223,7 @@ AppAPI lifecycle endpoints implemented by the bridge:
 - `POST /init` — initialization acknowledgement.
 - `PUT /enabled?enabled=1|0` — enable/disable lifecycle acknowledgement.
 - `POST /hook` — Nextcloud Talk bot webhook receiver.
+- `POST /deliver` — authenticated proactive delivery endpoint for cron/report/alert messages.
 
 Build and smoke-test locally before release:
 
