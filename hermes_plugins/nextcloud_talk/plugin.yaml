@@ -1,7 +1,7 @@
 name: nextcloud_talk-platform
 label: Nextcloud Talk
 kind: platform
-version: 1.0.6
+version: 1.0.7
 description: >
   Native Hermes cron delivery target for Nextcloud Talk bridge /deliver endpoints.
   Registers deliver=nextcloud_talk with a standalone HTTP sender.

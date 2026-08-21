@@ -30,7 +30,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.6")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.7")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
@@ -427,18 +427,37 @@ def ask(message: str, actor: str, context_packet: str = "", token: str = "", rep
         return "I hit an internal error while answering."
 
 
-def post(token: str, message: str, reply_to: int = 0) -> int | None:
+def post(
+    token: str,
+    message: str,
+    reply_to: int = 0,
+    *,
+    thread_title: str = "",
+    thread_id: int = 0,
+    silent: bool = False,
+    reference_id: str = "",
+) -> int | None:
     if not SECRET:
         log("missing TALK_BOT_SECRET/APP_SECRET; cannot post bot message")
         return None
     url = f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v1/bot/{token}/message"
+    thread_title = (thread_title or "").strip()
+    reference_id = (reference_id or "").strip()
 
     def send(include_reply: bool = True) -> int:
         rnd = secrets.token_hex(32)
         sig = hmac.new(SECRET.encode(), (rnd + message).encode(), hashlib.sha256).hexdigest()
         fields = {"message": message}
+        if reference_id:
+            fields["referenceId"] = reference_id
+        if silent:
+            fields["silent"] = "true"
         if include_reply and reply_to:
             fields["replyTo"] = str(reply_to)
+        elif thread_id:
+            fields["threadId"] = str(thread_id)
+        elif thread_title:
+            fields["threadTitle"] = thread_title
         data = urllib.parse.urlencode(fields).encode()
         req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("OCS-APIRequest", "true")
@@ -510,7 +529,17 @@ def acknowledge_received(token: str, message_id: int) -> bool:
     return react(token, message_id, reaction)
 
 
-def deliver(token: str, message: str, actor: str = "Proactive delivery", reply_to: int = 0) -> dict:
+def deliver(
+    token: str,
+    message: str,
+    actor: str = "Proactive delivery",
+    reply_to: int = 0,
+    *,
+    thread_title: str = "",
+    thread_id: int = 0,
+    silent: bool = False,
+    reference_id: str = "",
+) -> dict:
     """Post an on-demand outbound message and record it in room context/memory.
 
     This is the bridge-side primitive that lets Hermes cron/webhook runs treat a
@@ -526,7 +555,15 @@ def deliver(token: str, message: str, actor: str = "Proactive delivery", reply_t
     if not message:
         return {"ok": False, "error": "missing message"}
     log(f"proactive delivery requested token={token} actor={actor!r} message={message[:250]!r}")
-    status = post(token, message, reply_to)
+    status = post(
+        token,
+        message,
+        reply_to,
+        thread_title=thread_title,
+        thread_id=thread_id,
+        silent=silent,
+        reference_id=reference_id,
+    )
     if status is None:
         return {"ok": False, "error": "post failed"}
     namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
@@ -616,7 +653,25 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(400, {"ok": False, "error": "invalid reply_to"})
                 return
-            result = deliver(token, message, actor=actor, reply_to=reply_to)
+            try:
+                thread_id = int(payload.get("thread_id") or payload.get("threadId") or 0)
+            except (TypeError, ValueError):
+                self._write_json(400, {"ok": False, "error": "invalid thread_id"})
+                return
+            thread_title = str(payload.get("thread_title") or payload.get("threadTitle") or "")
+            reference_id = str(payload.get("reference_id") or payload.get("referenceId") or "")
+            silent_value = payload.get("silent", False)
+            silent = silent_value if isinstance(silent_value, bool) else str(silent_value).lower() in {"1", "true", "yes", "on"}
+            result = deliver(
+                token,
+                message,
+                actor=actor,
+                reply_to=reply_to,
+                thread_title=thread_title,
+                thread_id=thread_id,
+                silent=silent,
+                reference_id=reference_id,
+            )
             self._write_json(200 if result.get("ok") else 502 if result.get("error") == "post failed" else 400, result)
             return
         if parsed.path != "/hook":

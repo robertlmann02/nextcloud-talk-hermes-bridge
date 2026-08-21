@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.7
+
+- Add Nextcloud Talk thread support for bot posts and proactive `/deliver` calls.
+- Allow `/deliver` payloads to create a Talk thread with `threadTitle` / `thread_title` or reply into an existing thread with `threadId` / `thread_id`.
+- Pass through optional `silent` and `referenceId` / `reference_id` bot-message fields for scheduled/threaded delivery.
+- Map Hermes adapter thread IDs to Talk `threadId` instead of incorrectly treating them as `replyTo` message IDs.
+
 ## 1.0.6
 
 - Add optional Nextcloud Talk received-reaction acknowledgements via `TALK_RECEIVED_REACTION`.

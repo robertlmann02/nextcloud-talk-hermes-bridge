@@ -138,7 +138,7 @@ async def _standalone_send(
         "actor": "hermes-cron",
     }
     if thread_id:
-        payload["reply_to"] = thread_id
+        payload["thread_id"] = thread_id
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode("utf-8"),
@@ -205,7 +205,7 @@ class NextcloudTalkCronAdapter(BasePlatformAdapter):
             self.config,
             chat_id,
             content,
-            thread_id=reply_to,
+            thread_id=(metadata or {}).get("thread_id") or (metadata or {}).get("threadId") or reply_to,
             media_files=(metadata or {}).get("media_files"),
             force_document=bool((metadata or {}).get("force_document", False)),
         )

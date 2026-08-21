@@ -87,6 +87,23 @@ class TestHermesCronPlugin(unittest.TestCase):
         self.assertEqual(captured["payload"]["message"], "cron output")
         self.assertEqual(captured["payload"]["actor"], "hermes-cron")
 
+    def test_standalone_sender_maps_hermes_thread_id_to_talk_thread_id(self):
+        adapter = load_adapter()
+        os.environ["NEXTCLOUD_TALK_DELIVER_URL"] = "http://127.0.0.1:8788/deliver"
+        os.environ["NEXTCLOUD_TALK_DELIVER_SECRET"] = "secret"
+        captured = {}
+
+        def fake_urlopen(req, timeout=0):
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return _FakeResponse()
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = asyncio.run(adapter._standalone_send(None, "room-token", "cron output", thread_id="123"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(captured["payload"]["thread_id"], "123")
+        self.assertNotIn("reply_to", captured["payload"])
+
     def test_env_enablement_sets_home_channel_when_configured(self):
         adapter = load_adapter()
         os.environ["NEXTCLOUD_TALK_DELIVER_URL"] = "http://127.0.0.1:8788/deliver"

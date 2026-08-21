@@ -183,6 +183,10 @@ Request fields:
 - `message`: required bot message text.
 - `actor`: optional source label for bridge logs, for example `cron` or `monitoring`.
 - `reply_to` / `replyTo`: optional Talk message ID to reply to; usually omitted for scheduled posts.
+- `thread_title` / `threadTitle`: optional Talk thread title. When set without `reply_to`, Talk creates a thread for the bot message on servers with thread support.
+- `thread_id` / `threadId`: optional Talk thread ID. When set without `reply_to`, Talk posts into that existing thread without quoting a specific message.
+- `silent`: optional boolean to suppress notifications for the bot message.
+- `reference_id` / `referenceId`: optional app-defined reference ID for later correlation.
 
 Responses are JSON. A successful delivery returns:
 

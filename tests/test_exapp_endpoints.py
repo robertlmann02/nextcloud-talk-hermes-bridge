@@ -88,7 +88,15 @@ class ExAppEndpointTests(unittest.TestCase):
             "room_token": "abc123",
             "post_status": 201,
         })
-        post.assert_called_once_with("abc123", "scheduled report", 0)
+        post.assert_called_once_with(
+            "abc123",
+            "scheduled report",
+            0,
+            thread_title="",
+            thread_id=0,
+            silent=False,
+            reference_id="",
+        )
         append_turn.assert_called_once_with(
             "abc123", "assistant", bridge.ASSISTANT_NAME, "scheduled report", 0, app_name=bridge.APP_NAME
         )
@@ -120,6 +128,27 @@ class ExAppEndpointTests(unittest.TestCase):
         h.do_POST()
         self.assertEqual(h.status, 400)
         self.assertEqual(json.loads(h.body.decode()), {"ok": False, "error": "missing message"})
+
+    def test_deliver_passes_thread_fields_to_post(self):
+        payload = b'{"room_token":"abc123","message":"threaded report","threadTitle":"Daily reports","threadId":123,"silent":true,"referenceId":"cron-42"}'
+        h = self.make_handler("/deliver")
+        h.rfile = io.BytesIO(payload)
+        h.headers = {"Content-Length": str(len(payload)), "Authorization": "Bearer deliver-secret"}
+        bridge = load_bridge()
+        with mock.patch.object(bridge, "post", return_value=201) as post, \
+             mock.patch.object(bridge, "append_turn"), \
+             mock.patch.object(bridge, "sync_local_memory_message"):
+            h.do_POST()
+        self.assertEqual(h.status, 200)
+        post.assert_called_once_with(
+            "abc123",
+            "threaded report",
+            0,
+            thread_title="Daily reports",
+            thread_id=123,
+            silent=True,
+            reference_id="cron-42",
+        )
 
 
 if __name__ == "__main__":

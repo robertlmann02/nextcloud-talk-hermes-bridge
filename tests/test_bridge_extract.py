@@ -267,6 +267,65 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertEqual(req.headers["X-nextcloud-talk-bot-random"], "a" * 64)
         self.assertEqual(req.headers["X-nextcloud-talk-bot-signature"], expected_sig)
 
+    def test_post_can_create_thread_or_reply_to_thread(self):
+        bridge = load_bridge()
+
+        class FakeResponse:
+            status = 201
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, _n):
+                return b"{}"
+
+        captured = []
+
+        def fake_urlopen(req, timeout):
+            captured.append(urllib.parse.parse_qs(req.data.decode()))
+            return FakeResponse()
+
+        with mock.patch.object(bridge.urllib.request, "urlopen", side_effect=fake_urlopen):
+            self.assertEqual(bridge.post("room-token", "new thread", thread_title="Daily reports"), 201)
+            self.assertEqual(bridge.post("room-token", "same thread", thread_id=123, silent=True, reference_id="cron-42"), 201)
+
+        self.assertEqual(captured[0]["threadTitle"], ["Daily reports"])
+        self.assertNotIn("replyTo", captured[0])
+        self.assertEqual(captured[1]["threadId"], ["123"])
+        self.assertEqual(captured[1]["silent"], ["true"])
+        self.assertEqual(captured[1]["referenceId"], ["cron-42"])
+
+    def test_post_reply_to_takes_precedence_over_thread_fields(self):
+        bridge = load_bridge()
+
+        class FakeResponse:
+            status = 201
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, _n):
+                return b"{}"
+
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured.update(urllib.parse.parse_qs(req.data.decode()))
+            return FakeResponse()
+
+        with mock.patch.object(bridge.urllib.request, "urlopen", side_effect=fake_urlopen):
+            self.assertEqual(bridge.post("room-token", "reply", reply_to=42, thread_title="Ignored", thread_id=123), 201)
+
+        self.assertEqual(captured["replyTo"], ["42"])
+        self.assertNotIn("threadTitle", captured)
+        self.assertNotIn("threadId", captured)
+
 
 if __name__ == "__main__":
     unittest.main()
