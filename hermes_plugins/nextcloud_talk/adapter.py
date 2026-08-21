@@ -14,6 +14,60 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+try:  # Available when the plugin is installed inside Hermes Agent.
+    from gateway.config import Platform, PlatformConfig
+    from gateway.platforms.base import BasePlatformAdapter, SendResult
+except Exception:  # pragma: no cover - lets this repo test without Hermes installed.
+    class Platform(str):
+        def __new__(cls, value: str):
+            return str.__new__(cls, value)
+
+        @property
+        def value(self) -> str:
+            return str(self)
+
+    class PlatformConfig:  # type: ignore[no-redef]
+        extra: dict[str, Any] = {}
+
+    class SendResult:  # type: ignore[no-redef]
+        def __init__(self, success: bool, message_id: str | None = None, error: str | None = None):
+            self.success = success
+            self.message_id = message_id
+            self.error = error
+
+    class BasePlatformAdapter:  # type: ignore[no-redef]
+        def __init__(self, config: Any, platform: Any):
+            self.config = config
+            self.platform = platform
+            self._running = False
+
+        def _mark_connected(self) -> None:
+            self._running = True
+
+        def _mark_disconnected(self) -> None:
+            self._running = False
+
+        def set_message_handler(self, handler: Any) -> None:
+            self._message_handler = handler
+
+        def set_fatal_error_handler(self, handler: Any) -> None:
+            self._fatal_error_handler = handler
+
+        def set_session_store(self, store: Any) -> None:
+            self._session_store = store
+
+        def set_busy_session_handler(self, handler: Any) -> None:
+            self._busy_session_handler = handler
+
+        def set_topic_recovery_fn(self, fn: Any) -> None:
+            self._topic_recovery_fn = fn
+
+        def set_authorization_check(self, fn: Any) -> None:
+            self._authorization_check = fn
+
+        def set_platform_event_handler(self, handler: Any) -> None:
+            self._platform_event_handler = handler
+
 
 MAX_MESSAGE_LENGTH = 30000
 
@@ -27,19 +81,22 @@ def check_requirements() -> bool:
     return True
 
 
-def validate_config(_config: Any = None) -> tuple[bool, str | None]:
-    missing = [
-        name
-        for name in ("NEXTCLOUD_TALK_DELIVER_URL", "NEXTCLOUD_TALK_DELIVER_SECRET")
-        if not _env(name)
-    ]
-    if missing:
-        return False, "Missing required env var(s): " + ", ".join(missing)
-    return True, None
+def validate_config(_config: Any = None) -> bool:
+    return bool(_env("NEXTCLOUD_TALK_DELIVER_URL") and _env("NEXTCLOUD_TALK_DELIVER_SECRET"))
 
 
 def is_connected() -> bool:
     return bool(_env("NEXTCLOUD_TALK_DELIVER_URL") and _env("NEXTCLOUD_TALK_DELIVER_SECRET"))
+
+
+def _platform_value() -> Any:
+    try:
+        return Platform("nextcloud_talk")
+    except Exception:
+        class _PluginPlatform:
+            value = "nextcloud_talk"
+
+        return _PluginPlatform()
 
 
 def _env_enablement() -> dict[str, Any] | None:
@@ -113,22 +170,54 @@ async def _standalone_send(
     }
 
 
-class NextcloudTalkCronAdapter:
-    """Placeholder adapter.
+class NextcloudTalkCronAdapter(BasePlatformAdapter):
+    """Delivery-capable, no-inbound Hermes platform adapter.
 
-    Cron delivery uses ``standalone_sender_fn``. Interactive Talk messages are
-    handled by the bridge itself, so this adapter deliberately does not open a
-    gateway connection.
+    Cron delivery uses ``standalone_sender_fn`` when no live gateway adapter is
+    available. When the gateway does instantiate enabled platforms, Hermes still
+    expects the normal ``BasePlatformAdapter`` startup contract; this adapter
+    satisfies that contract without opening an inbound Talk connection. Reactive
+    Talk messages remain handled by the bridge's separate ``/hook`` endpoint.
     """
 
-    def __init__(self, config: Any):
-        self.config = config
+    supports_async_delivery = False
+    interactive_resume = False
+    MAX_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH
 
-    async def connect(self) -> None:
-        return None
+    def __init__(self, config: PlatformConfig):
+        super().__init__(config=config, platform=_platform_value())
+
+    async def connect(self, *, is_reconnect: bool = False) -> bool:
+        self._mark_connected()
+        return True
 
     async def disconnect(self) -> None:
+        self._mark_disconnected()
+
+    async def send(
+        self,
+        chat_id: str,
+        content: str,
+        reply_to: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        result = await _standalone_send(
+            self.config,
+            chat_id,
+            content,
+            thread_id=reply_to,
+            media_files=(metadata or {}).get("media_files"),
+            force_document=bool((metadata or {}).get("force_document", False)),
+        )
+        if result.get("success"):
+            return SendResult(success=True, message_id=str(result.get("message_id") or ""))
+        return SendResult(success=False, error=str(result.get("error") or "Nextcloud Talk delivery failed"))
+
+    async def send_typing(self, chat_id: str, metadata: dict[str, Any] | None = None) -> None:
         return None
+
+    async def get_chat_info(self, chat_id: str) -> dict[str, Any]:
+        return {"id": chat_id, "name": chat_id or "Nextcloud Talk", "type": "channel"}
 
 
 def register(ctx: Any) -> None:

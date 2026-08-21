@@ -98,6 +98,57 @@ class TestHermesCronPlugin(unittest.TestCase):
         self.assertEqual(enabled["home_channel"]["chat_id"], "room-token")
         self.assertEqual(enabled["extra"]["deliver_url"], "http://127.0.0.1:8788/deliver")
 
+    def test_validate_config_returns_boolean(self):
+        adapter = load_adapter()
+        os.environ.pop("NEXTCLOUD_TALK_DELIVER_URL", None)
+        os.environ.pop("NEXTCLOUD_TALK_DELIVER_SECRET", None)
+        self.assertIs(adapter.validate_config(None), False)
+
+        os.environ["NEXTCLOUD_TALK_DELIVER_URL"] = "http://127.0.0.1:8788/deliver"
+        os.environ["NEXTCLOUD_TALK_DELIVER_SECRET"] = "secret"
+        self.assertIs(adapter.validate_config(None), True)
+
+    def test_gateway_startup_contract_methods_exist(self):
+        adapter = load_adapter()
+        instance = adapter.NextcloudTalkCronAdapter(config=type("Config", (), {"extra": {}})())
+
+        for name in (
+            "set_message_handler",
+            "set_fatal_error_handler",
+            "set_session_store",
+            "set_busy_session_handler",
+            "set_topic_recovery_fn",
+            "set_authorization_check",
+            "set_platform_event_handler",
+        ):
+            self.assertTrue(callable(getattr(instance, name)))
+
+        instance.set_message_handler(lambda event: None)
+        instance.set_fatal_error_handler(lambda adp: None)
+        instance.set_session_store(object())
+        instance.set_busy_session_handler(lambda event, session: False)
+        instance.set_topic_recovery_fn(lambda source: None)
+        instance.set_authorization_check(lambda source: True)
+        instance.set_platform_event_handler(lambda event, source: None)
+        self.assertEqual(instance.platform.value, "nextcloud_talk")
+        self.assertTrue(asyncio.run(instance.connect()))
+        asyncio.run(instance.disconnect())
+
+    def test_live_adapter_send_uses_bridge_deliver_endpoint(self):
+        adapter = load_adapter()
+        os.environ["NEXTCLOUD_TALK_DELIVER_URL"] = "http://127.0.0.1:8788/deliver"
+        os.environ["NEXTCLOUD_TALK_DELIVER_SECRET"] = "secret"
+
+        def fake_urlopen(req, timeout=0):
+            return _FakeResponse(b'{"ok": true, "post_id": "abc"}')
+
+        instance = adapter.NextcloudTalkCronAdapter(config=type("Config", (), {"extra": {}})())
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = asyncio.run(instance.send("room-token", "cron output"))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.message_id, "abc")
+
 
 if __name__ == "__main__":
     unittest.main()

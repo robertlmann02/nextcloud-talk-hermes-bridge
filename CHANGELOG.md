@@ -1,9 +1,15 @@
 # Changelog
 
+## 1.0.5
+
+- Fix Hermes gateway startup crash when the native `nextcloud_talk` platform plugin is enabled for cron delivery.
+- Make the Nextcloud Talk cron adapter satisfy Hermes' platform adapter startup contract while remaining delivery-only for inbound Talk traffic.
+- Return a real boolean from plugin config validation so missing delivery environment variables are rejected correctly.
+
 ## 1.0.4
 
 - Ship native Hermes `deliver=nextcloud_talk` cron delivery support through the bridge-owned platform plugin and installer.
-- Add `NEXTCLOUD_TALK_*` configuration examples so scheduled reports, monitors, and reminders can post into Nextcloud Talk without per-job scripts.
+- Add README setup instructions for installing the native plugin into a Hermes Agent tree.
 - Keep `/deliver` successful after a Talk post even if optional local memory sync fails, so a bad memory database cannot make Hermes mark an already-posted cron message as failed.
 
 ## 1.0.3
