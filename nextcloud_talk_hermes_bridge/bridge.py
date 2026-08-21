@@ -30,7 +30,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.5")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.6")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
@@ -52,6 +52,7 @@ TOOLSETS = os.environ.get(
 )
 SKILLS = os.environ.get("HERMES_SKILLS", "messaging-bridge-ops,hermes-agent")
 SKILL_STATUS_ENABLED = os.environ.get("TALK_BRIDGE_SKILL_STATUS", "1").lower() in {"1", "true", "yes", "on"}
+RECEIVED_REACTION = os.environ.get("TALK_RECEIVED_REACTION", "").strip()
 MAX_TURNS = os.environ.get("HERMES_MAX_TURNS", "90")
 SOFT_TIMEOUT = int(os.environ.get("TALK_BRIDGE_SOFT_TIMEOUT", "180"))
 HARD_TIMEOUT = int(os.environ.get("TALK_BRIDGE_HARD_TIMEOUT", "900"))
@@ -465,6 +466,50 @@ def post(token: str, message: str, reply_to: int = 0) -> int | None:
         return None
 
 
+def react(token: str, message_id: int, reaction: str) -> bool:
+    """Add a bot reaction to an inbound Talk message.
+
+    This is intentionally best-effort. A failed acknowledgement reaction should
+    never block the Hermes run or the final Talk reply.
+    """
+    token = (token or "").strip()
+    reaction = (reaction or "").strip()
+    if not SECRET:
+        log("missing TALK_BOT_SECRET/APP_SECRET; cannot react to Talk message")
+        return False
+    if not token or not message_id or message_id <= 0 or not reaction:
+        return False
+    url = f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v1/bot/{token}/reaction/{message_id}"
+    rnd = secrets.token_hex(32)
+    sig = hmac.new(SECRET.encode(), (rnd + reaction).encode(), hashlib.sha256).hexdigest()
+    data = urllib.parse.urlencode({"reaction": reaction}).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("OCS-APIRequest", "true")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    req.add_header("X-Nextcloud-Talk-Bot-Random", rnd)
+    req.add_header("X-Nextcloud-Talk-Bot-Signature", sig)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read(200).decode("utf-8", "replace")
+            log(f"reacted message_id={message_id} status={resp.status} body={body[:120]!r}")
+            return resp.status in {200, 201}
+    except urllib.error.HTTPError as e:
+        body = e.read(300).decode("utf-8", "replace")
+        log(f"reaction http error status={e.code} body={body!r}")
+        return False
+    except Exception as e:
+        log(f"reaction exception: {e!r}")
+        return False
+
+
+def acknowledge_received(token: str, message_id: int) -> bool:
+    """Optionally mark an inbound Talk message as received before Hermes runs."""
+    reaction = os.environ.get("TALK_RECEIVED_REACTION", RECEIVED_REACTION).strip()
+    if not reaction:
+        return False
+    return react(token, message_id, reaction)
+
+
 def deliver(token: str, message: str, actor: str = "Proactive delivery", reply_to: int = 0) -> dict:
     """Post an on-demand outbound message and record it in room context/memory.
 
@@ -495,6 +540,10 @@ def deliver(token: str, message: str, actor: str = "Proactive delivery", reply_t
 
 def handle(ev: dict) -> None:
     log(f"message from {ev['actor_name']} token={ev['token']} id={ev['message_id']}: {ev['message'][:250]!r}")
+    try:
+        acknowledge_received(ev["token"], ev["message_id"])
+    except Exception as e:
+        log(f"received acknowledgement reaction failed: {e!r}")
     namespace = os.environ.get("TALK_MEMORY_NAMESPACE", HERMES_PROFILE or "default")
     command_reply = handle_slash_command(ev, namespace)
     if command_reply is not None:

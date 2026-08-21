@@ -1,5 +1,8 @@
 import importlib
+import hmac
+import hashlib
 import os
+import urllib.parse
 import unittest
 from unittest import mock
 
@@ -186,6 +189,83 @@ class BridgeExtractTests(unittest.TestCase):
             bridge.handle(ev)
         reset.assert_called_once_with("room-token", bridge.APP_NAME)
         self.assertIn("Removed 2 context file", post.call_args.args[1])
+
+    def test_acknowledge_received_is_disabled_by_default(self):
+        bridge = load_bridge()
+        with mock.patch.dict(os.environ, {"TALK_RECEIVED_REACTION": ""}, clear=False), \
+             mock.patch.object(bridge, "react") as react:
+            self.assertFalse(bridge.acknowledge_received("room-token", 42))
+        react.assert_not_called()
+
+    def test_handle_adds_optional_received_reaction_before_hermes(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "hello", "message_id": 42, "actor_name": "Alex"}
+        call_order = []
+
+        def fake_ack(token, message_id):
+            call_order.append(("ack", token, message_id))
+            return True
+
+        def fake_ask(*args, **kwargs):
+            call_order.append(("ask", args[0]))
+            return "final reply"
+
+        with mock.patch.dict(os.environ, {"TALK_RECEIVED_REACTION": "👀"}, clear=False), \
+             mock.patch.object(bridge, "acknowledge_received", side_effect=fake_ack) as ack, \
+             mock.patch.object(bridge, "ask", side_effect=fake_ask), \
+             mock.patch.object(bridge, "append_turn"), \
+             mock.patch.object(bridge, "sync_local_memory_message"), \
+             mock.patch.object(bridge, "post", return_value=201):
+            bridge.handle(ev)
+        ack.assert_called_once_with("room-token", 42)
+        self.assertEqual(call_order[0], ("ack", "room-token", 42))
+        self.assertEqual(call_order[1], ("ask", "hello"))
+
+    def test_received_reaction_failure_does_not_block_reply(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "hello", "message_id": 42, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "acknowledge_received", side_effect=RuntimeError("reaction failed")), \
+             mock.patch.object(bridge, "ask", return_value="final reply") as ask, \
+             mock.patch.object(bridge, "append_turn"), \
+             mock.patch.object(bridge, "sync_local_memory_message"), \
+             mock.patch.object(bridge, "post", return_value=201):
+            bridge.handle(ev)
+        ask.assert_called_once()
+
+    def test_react_posts_signed_talk_reaction(self):
+        bridge = load_bridge()
+
+        class FakeResponse:
+            status = 201
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, _n):
+                return b"{}"
+
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["req"] = req
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        with mock.patch.object(bridge.secrets, "token_hex", return_value="a" * 64), \
+             mock.patch.object(bridge.urllib.request, "urlopen", side_effect=fake_urlopen):
+            self.assertTrue(bridge.react("room-token", 42, "👀"))
+
+        req = captured["req"]
+        self.assertEqual(captured["timeout"], 20)
+        self.assertEqual(req.full_url, "https://nextcloud.example.test/ocs/v2.php/apps/spreed/api/v1/bot/room-token/reaction/42")
+        fields = urllib.parse.parse_qs(req.data.decode())
+        self.assertEqual(fields["reaction"], ["👀"])
+        expected_sig = hmac.new(b"test-secret", (("a" * 64) + "👀").encode(), hashlib.sha256).hexdigest()
+        self.assertEqual(req.headers["X-nextcloud-talk-bot-random"], "a" * 64)
+        self.assertEqual(req.headers["X-nextcloud-talk-bot-signature"], expected_sig)
 
 
 if __name__ == "__main__":

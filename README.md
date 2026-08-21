@@ -112,6 +112,7 @@ The bridge handles:
 - `HERMES_TOOLSETS`: comma-separated toolsets exposed to Hermes.
 - `HERMES_SKILLS`: comma-separated skills to pre-load.
 - `TALK_BRIDGE_SKILL_STATUS`: `1`/`0` toggle. When enabled, the bridge prompt tells Hermes to explicitly report any skill creation, patch, edit, or deletion in its final Talk reply, including the skill names changed.
+- `TALK_RECEIVED_REACTION`: optional emoji reaction, for example `👀`, that the bridge adds to an inbound Talk message before Hermes starts working. Leave unset to disable. Reaction failures are logged but never block the final reply or the existing `Working.` / background heartbeat messages.
 - `HERMES_YOLO`: `1` enables non-interactive tool execution. Set to `0` if you want a safer/default Hermes mode.
 - `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
 - `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.

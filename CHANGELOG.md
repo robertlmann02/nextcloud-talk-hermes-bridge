@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.6
+
+- Add optional Nextcloud Talk received-reaction acknowledgements via `TALK_RECEIVED_REACTION`.
+- Use Talk's signed bot reaction endpoint as a best-effort pre-Hermes acknowledgement without replacing existing `Working.` / background heartbeat messages.
+- Keep reaction failures non-blocking so the final Hermes reply still posts normally.
+
 ## 1.0.5
 
 - Fix Hermes gateway startup crash when the native `nextcloud_talk` platform plugin is enabled for cron delivery.
