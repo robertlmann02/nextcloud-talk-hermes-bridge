@@ -121,6 +121,8 @@ The bridge handles:
 - `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `personal`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
 - `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.
 - `TALK_MEMORY_RETRIEVAL_SCOPE`: `room` by default. Room mode keeps raw indexed Talk messages limited to the current room/session while still allowing durable namespace memories and representation cards. Set to `workspace` only for deliberate cross-room diagnostics.
+- `TALK_APPROVAL_PROMPTS`: optional approval broker. Set to `1` to relay Hermes protected-action prompts into the same Talk room. Approval replies supported: `/approve once`, `/approve session`, `/approve always`, `/deny`, plus simple yes/no aliases. When enabled, the bridge omits `--yolo` so Hermes can request approvals.
+- `TALK_APPROVAL_TIMEOUT`: approval wait timeout in seconds, default `300`; timeout denies fail-closed.
 
 Optional Nextcloud AI/document context settings:
 

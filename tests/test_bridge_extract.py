@@ -326,6 +326,43 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertNotIn("threadTitle", captured)
         self.assertNotIn("threadId", captured)
 
+    def test_approval_prompt_redacts_secret_values(self):
+        bridge = load_bridge()
+        prompt = bridge._format_talk_approval_prompt("DANGEROUS COMMAND: run curl -H 'Authorization: Bearer abcdefghijklmnop' TOKEN=supersecretvalue")
+        self.assertIn("Approval required", prompt)
+        self.assertIn("Bearer <redacted>", prompt)
+        self.assertIn("TOKEN=<redacted>", prompt)
+        self.assertNotIn("abcdefghijklmnop", prompt)
+        self.assertNotIn("supersecretvalue", prompt)
+
+    def test_pending_approval_is_room_scoped(self):
+        bridge = load_bridge()
+        fake_stdin = mock.Mock()
+        with mock.patch.object(bridge, "APPROVAL_TIMEOUT", 5), mock.patch.object(bridge, "post", return_value=201):
+            bridge._request_talk_approval("room-a", 10, "DANGEROUS COMMAND: delete test\nChoice [o/s/a/D]:", fake_stdin)
+            self.assertIsNone(bridge.resolve_pending_approval("room-b", "/approve once"))
+            self.assertEqual(bridge.resolve_pending_approval("room-a", "/approve session"), "session")
+        # Let the waiter write the mapped CLI choice.
+        import time
+        deadline = time.time() + 2
+        while not fake_stdin.write.called and time.time() < deadline:
+            time.sleep(0.05)
+        fake_stdin.write.assert_called_with("s\n")
+        fake_stdin.flush.assert_called_once()
+
+    def test_ask_approval_mode_uses_stdin_pipe_and_omits_yolo(self):
+        bridge = load_bridge()
+        popen_result = mock.Mock()
+        popen_result.returncode = 0
+        with mock.patch.object(bridge, "APPROVAL_PROMPTS", True), \
+             mock.patch.object(bridge, "_collect_process_with_talk_approvals", return_value=("Done", "", False, False)), \
+             mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
+            reply = bridge.ask("do protected thing", "Alex", "", token="room-token", reply_to=42)
+        self.assertEqual(reply, "Done")
+        cmd = popen.call_args.args[0]
+        self.assertNotIn("--yolo", cmd)
+        self.assertIs(popen.call_args.kwargs["stdin"], bridge.subprocess.PIPE)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,7 +30,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.8")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.9")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
@@ -59,6 +59,10 @@ HARD_TIMEOUT = int(os.environ.get("TALK_BRIDGE_HARD_TIMEOUT", "900"))
 HEARTBEAT_INTERVAL = int(os.environ.get("TALK_BRIDGE_BACKGROUND_HEARTBEAT", "120"))
 ENABLE_YOLO = os.environ.get("HERMES_YOLO", "1").lower() in {"1", "true", "yes", "on"}
 ACCEPT_HOOKS = os.environ.get("HERMES_ACCEPT_HOOKS", "1").lower() in {"1", "true", "yes", "on"}
+APPROVAL_PROMPTS = os.environ.get("TALK_APPROVAL_PROMPTS", "0").lower() in {"1", "true", "yes", "on"}
+APPROVAL_TIMEOUT = int(os.environ.get("TALK_APPROVAL_TIMEOUT", "300"))
+_PENDING_APPROVALS: dict[str, dict] = {}
+_PENDING_APPROVALS_LOCK = threading.Lock()
 
 
 def log(msg: str) -> None:
@@ -201,6 +205,161 @@ def extract(payload: dict) -> dict | None:
 def _bool_env(name: str, default: str = "0") -> bool:
     return os.environ.get(name, default).lower() in {"1", "true", "yes", "on"}
 
+
+
+def _approval_session_key(token: str) -> str:
+    return (token or "").strip()
+
+
+def _redact_approval_text(text: str) -> str:
+    text = text or ""
+    text = re.sub(r"(?i)(token|secret|password|app[_-]?password|api[_-]?key|bearer)(\s*[=:]\s*)\S+", r"\1\2<redacted>", text)
+    text = re.sub(r"(?i)Bearer\s+[A-Za-z0-9._~+/-]{12,}", "Bearer <redacted>", text)
+    text = re.sub(r"(?i)(ghp|gho|github_pat)_[A-Za-z0-9_]+", "<github-token-redacted>", text)
+    text = re.sub(r"(?i)sk-[A-Za-z0-9_-]{20,}", "<api-key-redacted>", text)
+    return text[:2500]
+
+
+def _parse_approval_decision(message: str) -> str | None:
+    text = (message or "").strip().lower()
+    if not text:
+        return None
+    if text.startswith("/approve") or text in {"approve", "approved", "yes", "y", "ok"}:
+        if "always" in text:
+            return "always"
+        if "session" in text:
+            return "session"
+        return "once"
+    if text.startswith("/deny") or text in {"deny", "denied", "no", "n", "stop", "cancel"}:
+        return "deny"
+    return None
+
+
+def resolve_pending_approval(token: str, message: str) -> str | None:
+    decision = _parse_approval_decision(message)
+    if decision is None:
+        return None
+    key = _approval_session_key(token)
+    with _PENDING_APPROVALS_LOCK:
+        pending = _PENDING_APPROVALS.get(key)
+    if not pending:
+        return None
+    pending["decision"] = decision
+    pending["event"].set()
+    return decision
+
+
+def _format_talk_approval_prompt(prompt_text: str, allow_permanent: bool = True) -> str:
+    clean_prompt = _redact_approval_text(prompt_text)
+    options = "`/approve once`, `/approve session`, `/deny`"
+    if allow_permanent:
+        options = "`/approve once`, `/approve session`, `/approve always`, `/deny`"
+    return (
+        "⚠️ **Approval required**\n\n"
+        "Hermes wants to run a protected action. Review the redacted command/details below.\n\n"
+        "```text\n" + clean_prompt + "\n```\n\n"
+        "Reply in this Talk room with " + options + "."
+    )
+
+
+def _request_talk_approval(token: str, reply_to: int, prompt_text: str, stdin_pipe, allow_permanent: bool = True) -> None:
+    key = _approval_session_key(token)
+    event = threading.Event()
+    pending = {"event": event, "decision": None, "created_at": time.time()}
+    with _PENDING_APPROVALS_LOCK:
+        _PENDING_APPROVALS[key] = pending
+    try:
+        post(token, _format_talk_approval_prompt(prompt_text, allow_permanent=allow_permanent), reply_to)
+    except Exception as e:
+        log(f"approval prompt post failed: {e!r}")
+
+    def waiter():
+        try:
+            if not event.wait(APPROVAL_TIMEOUT):
+                decision = "deny"
+                try:
+                    post(token, "⚠️ Approval timed out; denying the protected action.", reply_to)
+                except Exception:
+                    pass
+            else:
+                decision = pending.get("decision") or "deny"
+            choice = {"once": "o\n", "session": "s\n", "always": "a\n", "deny": "d\n"}.get(decision, "d\n")
+            try:
+                stdin_pipe.write(choice)
+                stdin_pipe.flush()
+            except Exception as e:
+                log(f"approval stdin write failed: {e!r}")
+        finally:
+            with _PENDING_APPROVALS_LOCK:
+                if _PENDING_APPROVALS.get(key) is pending:
+                    _PENDING_APPROVALS.pop(key, None)
+
+    threading.Thread(target=waiter, daemon=True).start()
+
+
+def _collect_process_with_talk_approvals(proc, token: str, reply_to: int, start: float) -> tuple[str, str, bool, bool]:
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    state = {"last_prompt_idx": -1, "background_notice_sent": False, "approval_requested": False}
+    lock = threading.Lock()
+
+    def maybe_detect_approval() -> None:
+        if not (APPROVAL_PROMPTS and token and proc.stdin):
+            return
+        with lock:
+            buf = "".join(stdout_chunks)
+        idx = buf.rfind("DANGEROUS COMMAND:")
+        if idx < 0 or idx <= state["last_prompt_idx"]:
+            return
+        tail = buf[idx:]
+        if "Choice [" not in tail:
+            return
+        state["last_prompt_idx"] = idx
+        state["approval_requested"] = True
+        _request_talk_approval(token, reply_to, tail, proc.stdin, allow_permanent="[a]" in tail)
+
+    def read_stream(stream, chunks, is_stdout: bool):
+        try:
+            while True:
+                ch = stream.read(1)
+                if not ch:
+                    break
+                with lock:
+                    chunks.append(ch)
+                if is_stdout:
+                    maybe_detect_approval()
+        except Exception as e:
+            log(f"process stream read failed stdout={is_stdout}: {e!r}")
+
+    t_out = threading.Thread(target=read_stream, args=(proc.stdout, stdout_chunks, True), daemon=True)
+    t_err = threading.Thread(target=read_stream, args=(proc.stderr, stderr_chunks, False), daemon=True)
+    t_out.start(); t_err.start()
+    deadline = start + HARD_TIMEOUT
+    soft_deadline = start + SOFT_TIMEOUT
+    next_heartbeat = time.time() + HEARTBEAT_INTERVAL
+    while proc.poll() is None:
+        now = time.time()
+        if now >= deadline:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                time.sleep(2)
+                if proc.poll() is None:
+                    os.killpg(proc.pid, signal.SIGKILL)
+            except Exception as e:
+                log(f"hard-timeout cleanup exception: {e!r}")
+            return "".join(stdout_chunks), "".join(stderr_chunks), state["background_notice_sent"], True
+        if not state["background_notice_sent"] and now >= soft_deadline and not state["approval_requested"]:
+            state["background_notice_sent"] = True
+            log(f"hermes exceeded {SOFT_TIMEOUT}s; moving to Talk background wait")
+            if token:
+                post(token, "This is taking longer than normal, so I am keeping the Talk run alive in background mode and will post the result here when it finishes.", reply_to)
+        if state["background_notice_sent"] and token and now >= next_heartbeat:
+            elapsed = int(now - start)
+            post(token, f"Still working in Nextcloud Talk background mode — {elapsed} seconds elapsed.", reply_to)
+            next_heartbeat = now + HEARTBEAT_INTERVAL
+        time.sleep(0.2)
+    t_out.join(timeout=2); t_err.join(timeout=2)
+    return "".join(stdout_chunks), "".join(stderr_chunks), state["background_notice_sent"], False
 
 def _extract_slash_command(message: str) -> tuple[str, str] | None:
     """Return (command, args) when a Talk message is a bridge slash command."""
@@ -368,10 +527,10 @@ def ask(message: str, actor: str, context_packet: str = "", token: str = "", rep
         cmd.extend(["--skills", SKILLS])
     if ACCEPT_HOOKS:
         cmd.append("--accept-hooks")
-    if ENABLE_YOLO:
+    if ENABLE_YOLO and not APPROVAL_PROMPTS:
         cmd.append("--yolo")
 
-    env = {**os.environ, "HOME": HERMES_HOME_DIR, "TERM": "dumb", "NO_COLOR": "1"}
+    env = {**os.environ, "HOME": HERMES_HOME_DIR, "TERM": "dumb", "NO_COLOR": "1", "PYTHONUNBUFFERED": "1"}
     try:
         start = time.time()
         proc = subprocess.Popen(
@@ -379,40 +538,47 @@ def ask(message: str, actor: str, context_packet: str = "", token: str = "", rep
             cwd=HERMES_HOME_DIR,
             env=env,
             text=True,
+            stdin=subprocess.PIPE if APPROVAL_PROMPTS else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            bufsize=0 if APPROVAL_PROMPTS else -1,
             start_new_session=True,
         )
-        background_notice_sent = False
-        try:
-            out, err = proc.communicate(timeout=SOFT_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            background_notice_sent = True
-            log(f"hermes exceeded {SOFT_TIMEOUT}s; moving to Talk background wait")
-            if token:
-                post(token, "This is taking longer than normal, so I am keeping the Talk run alive in background mode and will post the result here when it finishes.", reply_to)
-            deadline = start + HARD_TIMEOUT
-            next_heartbeat = time.time() + HEARTBEAT_INTERVAL
-            while proc.poll() is None and time.time() < deadline:
-                time.sleep(2)
-                if token and time.time() >= next_heartbeat:
-                    elapsed = int(time.time() - start)
-                    post(token, f"Still working in Nextcloud Talk background mode — {elapsed} seconds elapsed.", reply_to)
-                    next_heartbeat = time.time() + HEARTBEAT_INTERVAL
-            if proc.poll() is None:
-                try:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    time.sleep(2)
-                    if proc.poll() is None:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    try:
-                        proc.communicate(timeout=5)
-                    except Exception:
-                        pass
-                except Exception as e:
-                    log(f"hard-timeout cleanup exception: {e!r}")
+        if APPROVAL_PROMPTS:
+            out, err, background_notice_sent, hard_timeout = _collect_process_with_talk_approvals(proc, token, reply_to, start)
+            if hard_timeout:
                 return f"I kept working in background mode but hit the {HARD_TIMEOUT // 60}-minute hard limit, so I stopped the run."
-            out, err = proc.communicate(timeout=10)
+        else:
+            background_notice_sent = False
+            try:
+                out, err = proc.communicate(timeout=SOFT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                background_notice_sent = True
+                log(f"hermes exceeded {SOFT_TIMEOUT}s; moving to Talk background wait")
+                if token:
+                    post(token, "This is taking longer than normal, so I am keeping the Talk run alive in background mode and will post the result here when it finishes.", reply_to)
+                deadline = start + HARD_TIMEOUT
+                next_heartbeat = time.time() + HEARTBEAT_INTERVAL
+                while proc.poll() is None and time.time() < deadline:
+                    time.sleep(2)
+                    if token and time.time() >= next_heartbeat:
+                        elapsed = int(time.time() - start)
+                        post(token, f"Still working in Nextcloud Talk background mode — {elapsed} seconds elapsed.", reply_to)
+                        next_heartbeat = time.time() + HEARTBEAT_INTERVAL
+                if proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                        time.sleep(2)
+                        if proc.poll() is None:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        try:
+                            proc.communicate(timeout=5)
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        log(f"hard-timeout cleanup exception: {e!r}")
+                    return f"I kept working in background mode but hit the {HARD_TIMEOUT // 60}-minute hard limit, so I stopped the run."
+                out, err = proc.communicate(timeout=10)
         elapsed = time.time() - start
         log(f"hermes completed rc={proc.returncode} elapsed={elapsed:.1f}s background={background_notice_sent}")
         if proc.returncode != 0:
@@ -577,6 +743,11 @@ def deliver(
 
 def handle(ev: dict) -> None:
     log(f"message from {ev['actor_name']} token={ev['token']} id={ev['message_id']}: {ev['message'][:250]!r}")
+    approval_decision = resolve_pending_approval(ev["token"], ev["message"])
+    if approval_decision is not None:
+        label = "approved" if approval_decision != "deny" else "denied"
+        post(ev["token"], f"Approval {label}: {approval_decision}.", ev["message_id"])
+        return
     try:
         acknowledge_received(ev["token"], ev["message_id"])
     except Exception as e:

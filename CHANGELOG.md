@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.9
+
+- Add optional Nextcloud Talk approval prompts for protected Hermes actions.
+- Relay redacted approval requests into the originating Talk room and accept `/approve once`, `/approve session`, `/approve always`, or `/deny` replies.
+- Keep approval decisions room-scoped, deny on timeout, and preserve existing long-running background behavior.
+
 ## 1.0.8
 
 - Default local-memory raw Talk message retrieval to the current room/session so vague follow-ups do not pull chat history from another conversation in the same namespace.
