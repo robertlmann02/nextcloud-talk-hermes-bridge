@@ -204,7 +204,7 @@ The bridge can let Hermes create or update skills when the deployed Hermes profi
 For visibility in Nextcloud Talk, `TALK_BRIDGE_SKILL_STATUS=1` is enabled by default. With that setting, the bridge instructs Hermes to state skill changes in the final Talk reply, for example:
 
 ```text
-Skills changed: created canon-field-service-workflow; patched mannpro-custom-ubuntu-live-build
+Skills changed: created field-service-workflow; patched custom-linux-live-build
 ```
 
 If no skill is created, Hermes should say so when the user specifically asked for a skill. Keep `HERMES_YOLO` and broad toolsets limited to trusted private assistants, because skill tools can write durable procedure files under the selected Hermes profile.
