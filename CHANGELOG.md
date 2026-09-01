@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.8
+
+- Default local-memory raw Talk message retrieval to the current room/session so vague follow-ups do not pull chat history from another conversation in the same namespace.
+- Add `TALK_MEMORY_RETRIEVAL_SCOPE=workspace` as an explicit opt-in escape hatch for deliberate cross-room diagnostics.
+- Add regression coverage for two-room isolation while keeping durable namespace memories available.
+
 ## 1.0.7
 
 - Add Nextcloud Talk thread support for bot posts and proactive `/deliver` calls.

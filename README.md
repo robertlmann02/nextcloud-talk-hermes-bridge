@@ -120,6 +120,7 @@ The bridge handles:
 - `TALK_LOCAL_MEMORY_CONTEXT`: `1`/`0` toggle for local SQLite memory context injection. Defaults to `1`.
 - `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `personal`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
 - `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.
+- `TALK_MEMORY_RETRIEVAL_SCOPE`: `room` by default. Room mode keeps raw indexed Talk messages limited to the current room/session while still allowing durable namespace memories and representation cards. Set to `workspace` only for deliberate cross-room diagnostics.
 
 Optional Nextcloud AI/document context settings:
 
@@ -217,6 +218,7 @@ When `TALK_LOCAL_MEMORY_CONTEXT=1`, the bridge will:
 - create/use a local SQLite database at `TALK_MEMORY_DB_PATH` or `$HERMES_HOME/local-memory/memory.sqlite3`;
 - keep memory separated by `TALK_MEMORY_NAMESPACE`;
 - index Talk/Hermes messages with FTS5;
+- keep raw indexed Talk message retrieval scoped to the current room/session by default so one room's follow-up context does not leak into another;
 - read compatible durable memories, conclusions, and representation cards when building the prompt context;
 - avoid mixing namespaces across assistants, users, or bridge instances.
 

@@ -199,6 +199,18 @@ def _memory_enabled() -> bool:
     return os.environ.get("TALK_LOCAL_MEMORY_CONTEXT", "1").lower() in {"1", "true", "yes", "on"}
 
 
+def _memory_retrieval_scope() -> str:
+    """Return the long-term retrieval scope for Talk local memory.
+
+    The default is room-scoped so vague follow-ups in one conversation do not
+    pull raw indexed messages from another room in the same namespace. Set
+    TALK_MEMORY_RETRIEVAL_SCOPE=workspace only for deliberate diagnostics or
+    explicit cross-room lookup.
+    """
+    scope = os.environ.get("TALK_MEMORY_RETRIEVAL_SCOPE", "room").strip().lower()
+    return "workspace" if scope in {"workspace", "global", "namespace", "all"} else "room"
+
+
 def _memory_namespace(namespace: str | None = None) -> str:
     raw = namespace or os.environ.get("TALK_MEMORY_NAMESPACE") or os.environ.get("HERMES_PROFILE") or "default"
     ns = re.sub(r"[^a-z0-9_.-]+", "_", raw.strip().lower().replace("-", "_"))[:80]
@@ -319,6 +331,9 @@ def build_local_memory_context(query: str, token: str = "", namespace: str | Non
             (f"ws_{ns}", ns, ts, ts, json.dumps({"source": "talk_context"})),
         )
         q = _fts_query(query)
+        retrieval_scope = _memory_retrieval_scope()
+        current_session_id = f"talk_{_safe_token(token)}" if token else ""
+        room_scoped = retrieval_scope == "room" and bool(current_session_id)
         memory_rows = []
         conclusion_rows = []
         message_rows = []
@@ -339,21 +354,38 @@ def build_local_memory_context(query: str, token: str = "", namespace: str | Non
             except Exception:
                 memory_rows = []
         try:
-            conclusion_rows = conn.execute(
-                """SELECT c.*, bm25(conclusions_fts) AS score FROM conclusions_fts JOIN conclusions c ON c.id = conclusions_fts.id
-                   WHERE conclusions_fts MATCH ? AND c.namespace = ? AND c.status = 'active'
-                   ORDER BY score ASC, c.confidence DESC LIMIT ?""",
-                (q, ns, limit),
-            ).fetchall()
+            if room_scoped:
+                conclusion_rows = conn.execute(
+                    """SELECT c.*, bm25(conclusions_fts) AS score FROM conclusions_fts JOIN conclusions c ON c.id = conclusions_fts.id
+                       WHERE conclusions_fts MATCH ? AND c.namespace = ? AND c.status = 'active'
+                         AND (c.session_id = ? OR c.session_id IS NULL OR c.session_id = '')
+                       ORDER BY score ASC, c.confidence DESC LIMIT ?""",
+                    (q, ns, current_session_id, limit),
+                ).fetchall()
+            else:
+                conclusion_rows = conn.execute(
+                    """SELECT c.*, bm25(conclusions_fts) AS score FROM conclusions_fts JOIN conclusions c ON c.id = conclusions_fts.id
+                       WHERE conclusions_fts MATCH ? AND c.namespace = ? AND c.status = 'active'
+                       ORDER BY score ASC, c.confidence DESC LIMIT ?""",
+                    (q, ns, limit),
+                ).fetchall()
         except Exception:
             conclusion_rows = []
         try:
-            message_rows = conn.execute(
-                """SELECT m.*, bm25(messages_fts) AS score FROM messages_fts JOIN messages m ON m.id = messages_fts.id
-                   WHERE messages_fts MATCH ? AND m.namespace = ?
-                   ORDER BY score ASC LIMIT ?""",
-                (q, ns, limit),
-            ).fetchall()
+            if room_scoped:
+                message_rows = conn.execute(
+                    """SELECT m.*, bm25(messages_fts) AS score FROM messages_fts JOIN messages m ON m.id = messages_fts.id
+                       WHERE messages_fts MATCH ? AND m.namespace = ? AND m.session_id = ?
+                       ORDER BY score ASC LIMIT ?""",
+                    (q, ns, current_session_id, limit),
+                ).fetchall()
+            else:
+                message_rows = conn.execute(
+                    """SELECT m.*, bm25(messages_fts) AS score FROM messages_fts JOIN messages m ON m.id = messages_fts.id
+                       WHERE messages_fts MATCH ? AND m.namespace = ?
+                       ORDER BY score ASC LIMIT ?""",
+                    (q, ns, limit),
+                ).fetchall()
         except Exception:
             message_rows = []
         if not message_rows and token:
@@ -376,6 +408,8 @@ def build_local_memory_context(query: str, token: str = "", namespace: str | Non
         parts = [
             "LOCAL SQLITE MEMORY CONTEXT",
             f"Workspace/namespace: {ns}.",
+            f"Retrieval scope: {retrieval_scope}." + (f" Current Talk session_id: {current_session_id}." if current_session_id else ""),
+            "Durable memories and global representation cards may describe stable assistant-wide facts; raw indexed Talk messages are room-scoped by default.",
             "Use these as targeted long-term context; do not mix namespaces or treat raw messages as approved durable facts.",
         ]
         for block in (
