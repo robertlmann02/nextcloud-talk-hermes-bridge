@@ -237,6 +237,15 @@ class BridgeExtractTests(unittest.TestCase):
         reset.assert_called_once_with("room-token", bridge.APP_NAME)
         self.assertIn("Removed 2 context file", post.call_args.args[1])
 
+    def test_slash_new_alias_uses_context_reset(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "/new", "message_id": 9, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "ask") as ask, mock.patch.object(bridge, "reset_context", return_value=1) as reset, mock.patch.object(bridge, "post", return_value=201) as post:
+            bridge.handle(ev)
+        ask.assert_not_called()
+        reset.assert_called_once_with("room-token", bridge.APP_NAME)
+        self.assertIn("Started a new Talk context", post.call_args.args[1])
+
     def test_bridge_command_handles_html_wrapped_slash_message(self):
         bridge = load_bridge()
         ev = {"token": "room-token", "message": "<strong>Assistant</strong> &sol;version", "message_id": 9, "actor_name": "Alex"}

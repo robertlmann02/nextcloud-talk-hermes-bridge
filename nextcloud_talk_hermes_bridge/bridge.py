@@ -382,7 +382,7 @@ def _extract_slash_command(message: str) -> tuple[str, str] | None:
     before it reaches a webhook bot.
     """
     msg = strip_msg(message or "")
-    commands = "help|status|memory|tools|reset|version|queue"
+    commands = "help|status|memory|tools|reset|new|version|queue"
     assistant_alias = re.escape(ASSISTANT_NAME)
     m = re.match(
         rf"^\s*(?:(?:@?{assistant_alias}|[A-Za-z][\w .-]{{0,48}})\s+)?[!/]({commands})\b\s*(.*)$",
@@ -412,7 +412,7 @@ def handle_slash_command(ev: dict, namespace: str) -> str | None:
             "• /status — show bridge/profile/memory status\n"
             "• /memory — show Mann_Memory/local context status\n"
             "• /tools — show enabled Hermes toolsets\n"
-            "• /reset — clear this room's short-term working context\n"
+            "• /reset or /new — clear this room's short-term working context\n"
             "• /version — show bridge version\n"
             "• /queue — explain long-running/background task behavior"
         )
@@ -440,13 +440,14 @@ def handle_slash_command(ev: dict, namespace: str) -> str | None:
             f"• Namespace: {namespace}\n"
             f"• DB path configured: {bool(db_path)}\n"
             f"• DB exists: {exists}\n"
-            "• /reset clears only short-term room context; durable Mann_Memory is retained."
+            "• /reset or /new clears only short-term room context; durable Mann_Memory is retained."
         )
     if command == "tools":
         return f"Enabled Hermes toolsets for {ASSISTANT_NAME}:\n{TOOLSETS}"
-    if command == "reset":
+    if command in {"reset", "new"}:
         removed = reset_context(ev.get("token", ""), APP_NAME)
-        return f"Reset this room's short-term Talk context for {ASSISTANT_NAME}. Removed {removed} context file(s). Durable Mann_Memory was not deleted."
+        verb = "Started a new Talk context" if command == "new" else "Reset this room's short-term Talk context"
+        return f"{verb} for {ASSISTANT_NAME}. Removed {removed} context file(s). Durable Mann_Memory was not deleted."
     if command == "version":
         return f"{ASSISTANT_NAME} is running {APP_ID} version {APP_VERSION}."
     if command == "queue":
