@@ -56,6 +56,27 @@ class TalkContextPacketTests(unittest.TestCase):
         self.assertIn("session_search for prior wording", packet)
         self.assertIn("git history as source of truth", packet)
 
+    def test_context_packet_can_omit_recent_history_for_resumed_sessions(self):
+        self.mod.append_turn("room-token", "user", "Alex", "this prior turn should not be duplicated", 1, app_name="unit-test-app")
+        self.mod.append_turn("room-token", "assistant", "Unit Assistant", "this prior reply should not be duplicated", 0, app_name="unit-test-app")
+
+        with mock.patch.object(self.mod, "build_local_memory_context", return_value=""):
+            packet = self.mod.build_context_packet(
+                "room-token",
+                "unit-test-app",
+                "Unit Assistant",
+                current_message="current request",
+                namespace="unit",
+                include_history=False,
+            )
+
+        self.assertIn("Current user message (highest priority): current request", packet)
+        self.assertIn("Working room state (lower priority; may be stale):", packet)
+        self.assertIn("Recent room turns: omitted because Hermes resume/session history already replays this room.", packet)
+        self.assertNotIn("Recent room turns, oldest to newest", packet)
+        self.assertNotIn("user/Alex#1:", packet)
+        self.assertNotIn("assistant/Unit Assistant#0:", packet)
+
     def test_local_memory_defaults_raw_message_retrieval_to_current_room(self):
         db_path = os.path.join(self.tmp.name, "memory.sqlite3")
         marker = "room_scope_marker"

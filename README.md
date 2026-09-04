@@ -117,6 +117,8 @@ The bridge handles:
 - `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
 - `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
 - `TALK_CONTEXT_DIR`: where room context JSONL files are stored. The generated context packet includes a priority rule: newest user message first, room state lower priority, and source/session/git history for “what was there before” requests.
+- `TALK_CONTEXT_INCLUDE_HISTORY`: optional `1`/`0` override for inlining bridge-managed recent Talk turns into each Hermes `-q` payload. Defaults to `1` for one-shot sessions and `0` when `TALK_HERMES_RESUME_SESSION`, `HERMES_RESUME_SESSION`, or `HERMES_SESSION_ID` is set, because Hermes resume already replays session history.
+- `TALK_PERSONA_SYSTEM_PROMPT`: `1` by default, which sends stable bridge persona/rules through Hermes' non-persisted `HERMES_EPHEMERAL_SYSTEM_PROMPT` instead of embedding them in every persisted user prompt. Set to `0` only for older Hermes builds that do not support the ephemeral prompt environment variable.
 - `TALK_LOCAL_MEMORY_CONTEXT`: `1`/`0` toggle for local SQLite memory context injection. Defaults to `1`.
 - `TALK_MEMORY_NAMESPACE`: memory workspace/namespace for this bridge, for example `personal`, `assistant`, or `support`. Defaults to `HERMES_PROFILE`, otherwise `default`.
 - `TALK_MEMORY_DB_PATH`: optional path to a compatible SQLite memory database. Defaults to `$HERMES_HOME/local-memory/memory.sqlite3`.

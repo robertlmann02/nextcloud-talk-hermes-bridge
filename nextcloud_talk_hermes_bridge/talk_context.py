@@ -134,9 +134,10 @@ def build_context_packet(
     max_turns: int = DEFAULT_CONTEXT_TURNS,
     current_message: str = "",
     namespace: str | None = None,
+    include_history: bool = True,
 ) -> str:
     history_path, working_path = _paths(token, app_name)
-    history = _read_history(history_path, max_turns)
+    history = _read_history(history_path, max_turns) if include_history else []
     try:
         working = json.loads(working_path.read_text(encoding="utf-8")) if working_path.exists() else {}
     except Exception:
@@ -165,17 +166,20 @@ def build_context_packet(
     else:
         lines.append("- No prior working state recorded yet.")
     lines.append("")
-    lines.append(f"Recent room turns, oldest to newest, max {max_turns}:")
-    if history:
-        for r in history:
-            tm = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(r.get("ts", 0) or 0)))
-            role = r.get("role", "?")
-            actor = r.get("actor", role)
-            mid = r.get("message_id", 0)
-            msg = r.get("message", "")
-            lines.append(f"[{tm}] {role}/{actor}#{mid}: {msg}")
+    if include_history:
+        lines.append(f"Recent room turns, oldest to newest, max {max_turns}:")
+        if history:
+            for r in history:
+                tm = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(r.get("ts", 0) or 0)))
+                role = r.get("role", "?")
+                actor = r.get("actor", role)
+                mid = r.get("message_id", 0)
+                msg = r.get("message", "")
+                lines.append(f"[{tm}] {role}/{actor}#{mid}: {msg}")
+        else:
+            lines.append("- No prior turns recorded yet.")
     else:
-        lines.append("- No prior turns recorded yet.")
+        lines.append("Recent room turns: omitted because Hermes resume/session history already replays this room.")
     # Preserve the bridge instructions, identity boundaries, working state, and
     # recent room turns at the front of the packet. Large uploaded Mann_Memory
     # databases can produce a big local-memory/Honcho packet; truncating from

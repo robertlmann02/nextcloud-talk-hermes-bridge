@@ -143,7 +143,7 @@ class BridgeExtractTests(unittest.TestCase):
         self.assertIn("NEXTCLOUD AI / DOCUMENT CONTEXT", prompt)
         self.assertIn("Manual.pdf", prompt)
 
-    def test_ask_exposes_skills_toolset_and_skill_status_rule(self):
+    def test_ask_exposes_skills_toolset_and_skill_status_rule_in_ephemeral_prompt(self):
         bridge = load_bridge()
         popen_result = mock.Mock()
         popen_result.communicate.return_value = ("Done", "")
@@ -151,14 +151,18 @@ class BridgeExtractTests(unittest.TestCase):
         with mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
             bridge.ask("save this as a skill", "Alex", "", token="room-token", reply_to=42)
         cmd = popen.call_args.args[0]
+        env = popen.call_args.kwargs["env"]
         self.assertIn("--toolsets", cmd)
         self.assertIn("skills", cmd[cmd.index("--toolsets") + 1])
         prompt = cmd[cmd.index("-q") + 1]
-        self.assertIn("Skill-management visibility rule", prompt)
-        self.assertIn("Skills changed:", prompt)
-        self.assertIn("Name every skill changed", prompt)
+        self.assertNotIn("Skill-management visibility rule", prompt)
+        self.assertNotIn("running inside a Nextcloud Talk bridge", prompt)
+        ephemeral = env["HERMES_EPHEMERAL_SYSTEM_PROMPT"]
+        self.assertIn("Skill-management visibility rule", ephemeral)
+        self.assertIn("Skills changed:", ephemeral)
+        self.assertIn("Name every skill changed", ephemeral)
 
-    def test_ask_exposes_current_request_and_source_history_rule(self):
+    def test_ask_exposes_current_request_and_source_history_rule_in_ephemeral_prompt(self):
         bridge = load_bridge()
         popen_result = mock.Mock()
         popen_result.communicate.return_value = ("Done", "")
@@ -166,10 +170,53 @@ class BridgeExtractTests(unittest.TestCase):
         with mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
             bridge.ask("what did we have before on the GitHub page?", "Alex", "STALE ROOM CONTEXT", token="room-token", reply_to=42)
         cmd = popen.call_args.args[0]
+        env = popen.call_args.kwargs["env"]
         prompt = cmd[cmd.index("-q") + 1]
-        self.assertIn("current user message as the controlling request", prompt)
-        self.assertIn("git/file history", prompt)
+        self.assertNotIn("running inside a Nextcloud Talk bridge", prompt)
+        self.assertNotIn("current user message as the controlling request", prompt)
         self.assertIn("STALE ROOM CONTEXT", prompt)
+        self.assertIn("current user message as the controlling request", env["HERMES_EPHEMERAL_SYSTEM_PROMPT"])
+        self.assertIn("git/file history", env["HERMES_EPHEMERAL_SYSTEM_PROMPT"])
+
+    def test_default_prompt_persists_only_per_turn_payload_and_sets_ephemeral_persona(self):
+        bridge = load_bridge()
+        popen_result = mock.Mock()
+        popen_result.communicate.return_value = ("Done", "")
+        popen_result.returncode = 0
+        context_packet = "NEXTCLOUD TALK CONTEXT PACKET\nCurrent user message (highest priority): hello"
+        with mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
+            bridge.ask("hello", "Alex", context_packet, token="room-token", reply_to=42)
+        cmd = popen.call_args.args[0]
+        env = popen.call_args.kwargs["env"]
+        prompt = cmd[cmd.index("-q") + 1]
+        self.assertIn(context_packet, prompt)
+        self.assertIn("Alex wrote in Nextcloud Talk:\nhello", prompt)
+        self.assertNotIn("Role/persona:", prompt)
+        self.assertNotIn("running inside a Nextcloud Talk bridge", prompt)
+        self.assertIn("Role/persona:", env["HERMES_EPHEMERAL_SYSTEM_PROMPT"])
+        self.assertIn("running inside a Nextcloud Talk bridge", env["HERMES_EPHEMERAL_SYSTEM_PROMPT"])
+
+    def test_legacy_persona_prompt_fallback_embeds_persona_in_user_payload(self):
+        bridge = load_bridge()
+        with mock.patch.dict(os.environ, {"TALK_PERSONA_SYSTEM_PROMPT": "0"}, clear=False):
+            prompt = bridge.build_prompt("hello", "Alex", "BASE CONTEXT")
+        self.assertIn("BASE CONTEXT", prompt)
+        self.assertIn("Role/persona:", prompt)
+        self.assertIn("running inside a Nextcloud Talk bridge", prompt)
+        self.assertIn("Alex wrote in Nextcloud Talk:\nhello", prompt)
+
+    def test_resume_session_adds_resume_arg_and_preserves_ephemeral_persona(self):
+        bridge = load_bridge()
+        popen_result = mock.Mock()
+        popen_result.communicate.return_value = ("Done", "")
+        popen_result.returncode = 0
+        with mock.patch.object(bridge, "RESUME_SESSION", "session-123"), \
+             mock.patch.object(bridge.subprocess, "Popen", return_value=popen_result) as popen:
+            bridge.ask("hello", "Alex", "BASE CONTEXT", token="room-token", reply_to=42)
+        cmd = popen.call_args.args[0]
+        self.assertIn("--resume", cmd)
+        self.assertEqual(cmd[cmd.index("--resume") + 1], "session-123")
+        self.assertIn("running inside a Nextcloud Talk bridge", popen.call_args.kwargs["env"]["HERMES_EPHEMERAL_SYSTEM_PROMPT"])
 
     def test_slash_status_posts_without_calling_hermes(self):
         bridge = load_bridge()

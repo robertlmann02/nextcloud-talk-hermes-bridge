@@ -30,7 +30,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.9")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.10")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
@@ -61,6 +61,12 @@ ENABLE_YOLO = os.environ.get("HERMES_YOLO", "1").lower() in {"1", "true", "yes",
 ACCEPT_HOOKS = os.environ.get("HERMES_ACCEPT_HOOKS", "1").lower() in {"1", "true", "yes", "on"}
 APPROVAL_PROMPTS = os.environ.get("TALK_APPROVAL_PROMPTS", "0").lower() in {"1", "true", "yes", "on"}
 APPROVAL_TIMEOUT = int(os.environ.get("TALK_APPROVAL_TIMEOUT", "300"))
+RESUME_SESSION = (
+    os.environ.get("TALK_HERMES_RESUME_SESSION")
+    or os.environ.get("HERMES_RESUME_SESSION")
+    or os.environ.get("HERMES_SESSION_ID")
+    or ""
+).strip()
 _PENDING_APPROVALS: dict[str, dict] = {}
 _PENDING_APPROVALS_LOCK = threading.Lock()
 
@@ -428,6 +434,21 @@ def handle_slash_command(ev: dict, namespace: str) -> str | None:
     return None
 
 
+def _include_talk_history_in_context() -> bool:
+    """Return whether bridge-managed recent Talk turns should be inlined.
+
+    When Hermes is resuming a persistent room session, Hermes already replays
+    its own session history. Inlining the same recent Talk turns into every `-q`
+    payload duplicates context and can amplify compaction. Operators can force
+    the behavior with TALK_CONTEXT_INCLUDE_HISTORY=1/0; otherwise resume mode
+    automatically uses a slim packet and fresh one-shot mode keeps history.
+    """
+    raw = os.environ.get("TALK_CONTEXT_INCLUDE_HISTORY")
+    if raw is not None:
+        return raw.lower() in {"1", "true", "yes", "on"}
+    return not bool(RESUME_SESSION)
+
+
 def clean(out: str) -> str:
     out = (out or "").strip()
     if not out:
@@ -470,16 +491,33 @@ def clean(out: str) -> str:
     return text[:6000].strip()
 
 
-def build_prompt(message: str, actor: str, context_packet: str) -> str:
-    skill_status_rule = ""
-    if SKILL_STATUS_ENABLED:
-        skill_status_rule = """
+def _persona_system_prompt_enabled() -> bool:
+    """Return whether stable bridge persona should be sent as ephemeral system content.
+
+    Hermes persists `chat -q` as a user message in resumed sessions. Keep the
+    stable bridge identity/rules out of that persisted payload by default and
+    inject them through HERMES_EPHEMERAL_SYSTEM_PROMPT instead. Set
+    TALK_PERSONA_SYSTEM_PROMPT=0 for legacy Hermes builds that do not support the
+    ephemeral prompt environment variable.
+    """
+    return os.environ.get("TALK_PERSONA_SYSTEM_PROMPT", "1").lower() in {"1", "true", "yes", "on"}
+
+
+def _skill_status_rule() -> str:
+    if not SKILL_STATUS_ENABLED:
+        return ""
+    return """
 Skill-management visibility rule:
 - The skills toolset is enabled when `skills` is present in HERMES_TOOLSETS; this lets Hermes create, patch, edit, or delete skills through the normal skill tools.
 - If you create, patch, edit, delete, or otherwise change a Hermes skill, explicitly tell the Talk room in the final response.
 - Name every skill changed and classify the action, for example: `Skills changed: created <skill-name>; patched <skill-name>`.
 - If you decide a requested workflow does not need a new skill, say that no skill was created and why.
 """.strip()
+
+
+def build_persona_system_prompt() -> str:
+    """Build stable bridge persona/rules for Hermes ephemeral system prompt."""
+    skill_status_rule = _skill_status_rule()
     return f"""You are {ASSISTANT_NAME}, running inside a Nextcloud Talk bridge.
 
 Role/persona:
@@ -495,12 +533,24 @@ Bridge operating rules:
 - If context packet details conflict with retrieved source/history, trust the current user request plus source/history.
 - Output only the final user-facing reply text; no banners, metadata, or session information.
 {skill_status_rule}
+""".strip()
 
-{context_packet}
+
+def build_prompt(message: str, actor: str, context_packet: str) -> str:
+    """Build the per-turn user payload passed to `hermes chat -q`.
+
+    By default this contains only transient per-turn context and the current Talk
+    message, so resumed Hermes sessions do not persist another copy of the
+    stable bridge persona on every message.
+    """
+    per_turn = f"""{context_packet}
 
 {actor} wrote in Nextcloud Talk:
 {message}
-"""
+""".strip()
+    if _persona_system_prompt_enabled():
+        return per_turn
+    return (build_persona_system_prompt() + "\n\n" + per_turn).strip() + "\n"
 
 
 def ask(message: str, actor: str, context_packet: str = "", token: str = "", reply_to: int = 0) -> str:
@@ -523,6 +573,8 @@ def ask(message: str, actor: str, context_packet: str = "", token: str = "", rep
         "--max-turns",
         MAX_TURNS,
     ]
+    if RESUME_SESSION:
+        cmd.extend(["--resume", RESUME_SESSION])
     if SKILLS:
         cmd.extend(["--skills", SKILLS])
     if ACCEPT_HOOKS:
@@ -531,6 +583,12 @@ def ask(message: str, actor: str, context_packet: str = "", token: str = "", rep
         cmd.append("--yolo")
 
     env = {**os.environ, "HOME": HERMES_HOME_DIR, "TERM": "dumb", "NO_COLOR": "1", "PYTHONUNBUFFERED": "1"}
+    if _persona_system_prompt_enabled():
+        persona_prompt = build_persona_system_prompt()
+        existing_ephemeral = env.get("HERMES_EPHEMERAL_SYSTEM_PROMPT", "").strip()
+        env["HERMES_EPHEMERAL_SYSTEM_PROMPT"] = (
+            (existing_ephemeral + "\n\n" + persona_prompt).strip() if existing_ephemeral else persona_prompt
+        )
     try:
         start = time.time()
         proc = subprocess.Popen(
@@ -761,7 +819,14 @@ def handle(ev: dict) -> None:
         return
     append_turn(ev["token"], "user", ev["actor_name"], ev["message"], ev["message_id"], app_name=APP_NAME)
     sync_local_memory_message(ev["token"], "user", ev["actor_name"], ev["message"], namespace=namespace, message_id=ev["message_id"])
-    context_packet = build_context_packet(ev["token"], APP_NAME, ASSISTANT_NAME, current_message=ev["message"], namespace=namespace)
+    context_packet = build_context_packet(
+        ev["token"],
+        APP_NAME,
+        ASSISTANT_NAME,
+        current_message=ev["message"],
+        namespace=namespace,
+        include_history=_include_talk_history_in_context(),
+    )
     reply = ask(ev["message"], ev["actor_name"], context_packet, ev["token"], ev["message_id"])
     append_turn(ev["token"], "assistant", ASSISTANT_NAME, reply, 0, app_name=APP_NAME)
     sync_local_memory_message(ev["token"], "assistant", ASSISTANT_NAME, reply, namespace=namespace)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.10
+
+- Fix issue #6 context amplifier by moving stable bridge persona/rules out of persisted `hermes chat -q` user payloads and into `HERMES_EPHEMERAL_SYSTEM_PROMPT` by default.
+- Add `TALK_PERSONA_SYSTEM_PROMPT=0` legacy fallback for older Hermes builds that need persona rules embedded in the user prompt.
+- Add slim Talk context packets for resumed Hermes sessions so bridge-managed recent room history is not duplicated when Hermes already replays session history.
+- Add regression coverage for ephemeral persona wiring, legacy fallback behavior, and history omission in resumed/slim context packets.
+
 ## 1.0.9
 
 - Add optional Nextcloud Talk approval prompts for protected Hermes actions.
