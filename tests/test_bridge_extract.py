@@ -237,6 +237,30 @@ class BridgeExtractTests(unittest.TestCase):
         reset.assert_called_once_with("room-token", bridge.APP_NAME)
         self.assertIn("Removed 2 context file", post.call_args.args[1])
 
+    def test_bridge_command_handles_html_wrapped_slash_message(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "<strong>Assistant</strong> &sol;version", "message_id": 9, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "ask") as ask, mock.patch.object(bridge, "post", return_value=201) as post:
+            bridge.handle(ev)
+        ask.assert_not_called()
+        self.assertIn("version", post.call_args.args[1].lower())
+
+    def test_bridge_command_accepts_text_fallback_when_talk_intercepts_slash(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "bridge status", "message_id": 10, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "ask") as ask, mock.patch.object(bridge, "post", return_value=201) as post:
+            bridge.handle(ev)
+        ask.assert_not_called()
+        self.assertIn("Hermes profile", post.call_args.args[1])
+
+    def test_bridge_command_accepts_bang_fallback(self):
+        bridge = load_bridge()
+        ev = {"token": "room-token", "message": "!tools", "message_id": 11, "actor_name": "Alex"}
+        with mock.patch.object(bridge, "ask") as ask, mock.patch.object(bridge, "post", return_value=201) as post:
+            bridge.handle(ev)
+        ask.assert_not_called()
+        self.assertIn("Enabled Hermes toolsets", post.call_args.args[1])
+
     def test_acknowledge_received_is_disabled_by_default(self):
         bridge = load_bridge()
         with mock.patch.dict(os.environ, {"TALK_RECEIVED_REACTION": ""}, clear=False), \

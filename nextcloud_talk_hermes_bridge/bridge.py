@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -30,7 +31,7 @@ from .talk_media_resolve import describe_talk_image_for_vision
 
 APP_NAME = os.environ.get("TALK_BRIDGE_APP_NAME", "nextcloud-talk-hermes-bridge")
 APP_ID = os.environ.get("APP_ID", "hermes_talk_bridge")
-APP_VERSION = os.environ.get("APP_VERSION", "1.0.10")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.11")
 SECRET = os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or ""
 DELIVER_SECRET = os.environ.get("TALK_DELIVER_SECRET") or os.environ.get("HERMES_TALK_DELIVER_SECRET") or ""
 NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "http://nextcloud.local").rstrip("/")
@@ -78,7 +79,11 @@ def log(msg: str) -> None:
 
 
 def strip_msg(s: str) -> str:
-    return re.sub(r"\{@[^}]+\}", "", s or "").strip()
+    """Return readable Talk message text with common mention/markup wrappers removed."""
+    text = re.sub(r"\{@[^}]+\}", "", s or "")
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    return text.strip()
 
 
 def verify(headers, raw: bytes) -> bool:
@@ -368,9 +373,28 @@ def _collect_process_with_talk_approvals(proc, token: str, reply_to: int, start:
     return "".join(stdout_chunks), "".join(stderr_chunks), state["background_notice_sent"], False
 
 def _extract_slash_command(message: str) -> tuple[str, str] | None:
-    """Return (command, args) when a Talk message is a bridge slash command."""
+    """Return (command, args) when a Talk message is a bridge command.
+
+    Nextcloud Talk clients and server versions differ in how aggressively they
+    treat a leading `/...` as a native Talk command.  Accept the normal slash
+    form plus conservative text fallbacks (`!status`, `status`, `Assistant
+    status`) so bridge control still works when a client intercepts slash text
+    before it reaches a webhook bot.
+    """
     msg = strip_msg(message or "")
-    m = re.match(r"^\s*(?:(?:[A-Za-z][\w .-]{0,48})\s+)?/(help|status|memory|tools|reset|version|queue)\b\s*(.*)$", msg, re.I | re.S)
+    commands = "help|status|memory|tools|reset|version|queue"
+    assistant_alias = re.escape(ASSISTANT_NAME)
+    m = re.match(
+        rf"^\s*(?:(?:@?{assistant_alias}|[A-Za-z][\w .-]{{0,48}})\s+)?[!/]({commands})\b\s*(.*)$",
+        msg,
+        re.I | re.S,
+    )
+    if not m:
+        m = re.match(
+            rf"^\s*(?:(?:@?{assistant_alias}|bridge|bot)\s+)?({commands})\b\s*(.*)$",
+            msg,
+            re.I | re.S,
+        )
     if not m:
         return None
     return m.group(1).lower(), (m.group(2) or "").strip()

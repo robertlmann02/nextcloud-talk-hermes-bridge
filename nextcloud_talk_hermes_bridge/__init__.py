@@ -1,6 +1,6 @@
 """Nextcloud Talk Hermes Bridge package."""
 
-__version__ = "1.0.10"
+__version__ = "1.0.11"
 
 __all__ = ["main"]
 

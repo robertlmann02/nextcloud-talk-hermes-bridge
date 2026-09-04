@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.11
+
+- Harden Talk bridge command handling so `/help`, `/status`, `/memory`, `/tools`, `/reset`, `/version`, and `/queue` still work when Talk clients wrap slash text in markup or when a client/server intercepts leading slash syntax; users can now use `!status`, `bridge status`, or the bare command word as fallbacks.
+- Add regression coverage for HTML/entity-wrapped slash messages and non-slash fallback command forms.
+
 ## 1.0.10
 
 - Fix issue #6 context amplifier by moving stable bridge persona/rules out of persisted `hermes chat -q` user payloads and into `HERMES_EPHEMERAL_SYSTEM_PROMPT` by default.

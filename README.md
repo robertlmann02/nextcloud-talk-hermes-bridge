@@ -272,7 +272,7 @@ For App Store packaging details, see `EXAPP_SUBMISSION.md`.
 
 ## Talk slash commands
 
-Nextcloud Talk no longer provides the old native chat-command system for bots, so Hermes Talk Bridge emulates useful Telegram-style commands in normal Talk messages. Users can type these directly in a bot room, optionally prefixed with the assistant name, for example `/status` or `Assistant /status`.
+Nextcloud Talk server/client handling of leading-slash text varies by version and client. The bridge first handles normal slash forms like `/status` or `Assistant /status`. If a client intercepts those before they reach the bot, use one of the bridge-safe fallbacks instead: `!status`, `bridge status`, `Assistant status`, or just `status` in the bot room.
 
 | Command | Purpose |
 |---|---|
