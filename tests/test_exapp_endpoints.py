@@ -52,9 +52,25 @@ class ExAppEndpointTests(unittest.TestCase):
 
     def test_enabled_acknowledges_appapi_lifecycle(self):
         h = self.make_handler("/enabled?enabled=1")
-        h.do_PUT()
+        bridge = load_bridge()
+        with mock.patch.object(bridge, "register_appapi_talk_bot", return_value={"id": "bot-id", "secret": "generated-secret"}):
+            h.do_PUT()
         self.assertEqual(h.status, 200)
-        self.assertEqual(json.loads(h.body.decode()), {"error": ""})
+        self.assertEqual(json.loads(h.body.decode()), {"error": "", "talk_bot_registered": True, "talk_bot_id": "bot-id"})
+
+    def test_disabled_unregisters_appapi_talk_bot(self):
+        h = self.make_handler("/enabled?enabled=0")
+        bridge = load_bridge()
+        with mock.patch.object(bridge, "unregister_appapi_talk_bot", return_value=True) as unregister:
+            h.do_PUT()
+        self.assertEqual(h.status, 200)
+        self.assertEqual(json.loads(h.body.decode()), {"error": "", "talk_bot_unregistered": True})
+        unregister.assert_called_once_with()
+
+    def test_talk_bot_secret_prefers_appapi_registration_state(self):
+        bridge = load_bridge()
+        with mock.patch.object(bridge, "_read_talk_bot_registration", return_value={"secret": "generated-secret"}):
+            self.assertEqual(bridge.talk_bot_secret(), "generated-secret")
 
     def test_init_acknowledges_appapi_lifecycle(self):
         h = self.make_handler("/init")

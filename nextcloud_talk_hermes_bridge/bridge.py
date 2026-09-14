@@ -12,6 +12,7 @@ import hmac
 import html
 import json
 import os
+import base64
 import re
 import secrets
 import signal
@@ -70,12 +71,143 @@ RESUME_SESSION = (
 ).strip()
 _PENDING_APPROVALS: dict[str, dict] = {}
 _PENDING_APPROVALS_LOCK = threading.Lock()
+TALK_BOT_ROUTE = os.environ.get("TALK_BOT_ROUTE", "/hook")
+TALK_BOT_NAME = os.environ.get("TALK_BOT_NAME", ASSISTANT_NAME)
+TALK_BOT_DESCRIPTION = os.environ.get(
+    "TALK_BOT_DESCRIPTION",
+    "Hermes Agent bridge for Nextcloud Talk",
+)
 
 
 def log(msg: str) -> None:
     LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOG.open("a", encoding="utf-8") as f:
         f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+
+
+def _state_dir() -> Path:
+    """Return durable bridge state storage for generated AppAPI data."""
+    base = os.environ.get("APP_PERSISTENT_STORAGE") or os.environ.get("TALK_BRIDGE_STATE_DIR")
+    if base:
+        return Path(base)
+    return Path.home() / ".local/state/nextcloud-talk-hermes-bridge"
+
+
+def _talk_bot_registration_path() -> Path:
+    return _state_dir() / "talk-bot-registration.json"
+
+
+def _read_talk_bot_registration() -> dict:
+    path = _talk_bot_registration_path()
+    try:
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        log(f"failed reading AppAPI Talk bot registration state: {e!r}")
+        return {}
+
+
+def _write_talk_bot_registration(data: dict) -> None:
+    path = _talk_bot_registration_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except Exception:
+        pass
+    tmp.replace(path)
+
+
+def _clear_talk_bot_registration() -> None:
+    try:
+        _talk_bot_registration_path().unlink(missing_ok=True)
+    except Exception as e:
+        log(f"failed clearing AppAPI Talk bot registration state: {e!r}")
+
+
+def talk_bot_secret() -> str:
+    """Return AppAPI-provisioned Talk bot secret, with legacy env fallback."""
+    data = _read_talk_bot_registration()
+    stored_secret = str(data.get("secret") or "")
+    if stored_secret:
+        return stored_secret
+    return os.environ.get("TALK_BOT_SECRET") or os.environ.get("APP_SECRET") or SECRET
+
+
+def _appapi_auth_headers() -> dict[str, str]:
+    app_secret = os.environ.get("APP_SECRET", "")
+    if not app_secret:
+        raise RuntimeError("APP_SECRET is required for AppAPI-authenticated requests")
+    auth = base64.b64encode(f":{app_secret}".encode("utf-8")).decode("ascii")
+    return {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "OCS-APIRequest": "true",
+        "EX-APP-ID": APP_ID,
+        "EX-APP-VERSION": APP_VERSION,
+        "AUTHORIZATION-APP-API": auth,
+    }
+
+
+def _appapi_talk_bot_request(method: str, payload: dict) -> dict:
+    url = f"{NEXTCLOUD_URL}/ocs/v2.php/apps/app_api/api/v1/talk_bot"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method=method,
+        headers=_appapi_auth_headers(),
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        body = resp.read().decode("utf-8", "replace")
+    try:
+        parsed = json.loads(body) if body else {}
+    except Exception:
+        parsed = {"raw": body}
+    if isinstance(parsed, dict) and isinstance(parsed.get("ocs"), dict):
+        data = parsed.get("ocs", {}).get("data", {})
+        return data if isinstance(data, dict) else {"data": data}
+    return parsed if isinstance(parsed, dict) else {"data": parsed}
+
+
+def register_appapi_talk_bot() -> dict:
+    """Register this ExApp as a Talk bot through AppAPI and persist its secret."""
+    payload = {
+        "name": TALK_BOT_NAME,
+        "route": TALK_BOT_ROUTE,
+        "description": TALK_BOT_DESCRIPTION,
+    }
+    data = _appapi_talk_bot_request("POST", payload)
+    secret = str(data.get("secret") or "")
+    bot_id = str(data.get("id") or "")
+    if not secret:
+        raise RuntimeError("AppAPI Talk bot registration response did not include a secret")
+    state = {"id": bot_id, "secret": secret, "route": TALK_BOT_ROUTE, "name": TALK_BOT_NAME}
+    _write_talk_bot_registration(state)
+    log(f"AppAPI Talk bot registered route={TALK_BOT_ROUTE!r} id={bot_id!r}")
+    return state
+
+
+def unregister_appapi_talk_bot() -> bool:
+    """Unregister this ExApp Talk bot through AppAPI and remove local state."""
+    payload = {"route": TALK_BOT_ROUTE}
+    try:
+        _appapi_talk_bot_request("DELETE", payload)
+        log(f"AppAPI Talk bot unregistered route={TALK_BOT_ROUTE!r}")
+    except urllib.error.HTTPError as e:
+        body = e.read(300).decode("utf-8", "replace")
+        if e.code == 404:
+            log(f"AppAPI Talk bot already absent route={TALK_BOT_ROUTE!r}")
+        else:
+            log(f"AppAPI Talk bot unregister failed status={e.code} body={body!r}")
+            return False
+    except Exception as e:
+        log(f"AppAPI Talk bot unregister exception: {e!r}")
+        return False
+    _clear_talk_bot_registration()
+    return True
 
 
 def strip_msg(s: str) -> str:
@@ -87,14 +219,15 @@ def strip_msg(s: str) -> str:
 
 
 def verify(headers, raw: bytes) -> bool:
-    if not SECRET:
+    secret = talk_bot_secret()
+    if not secret:
         log("missing TALK_BOT_SECRET/APP_SECRET; rejecting webhook")
         return False
     rnd = headers.get("X-Nextcloud-Talk-Random", "")
     sig = headers.get("X-Nextcloud-Talk-Signature", "")
     if not rnd or not sig:
         return False
-    exp = hmac.new(SECRET.encode(), rnd.encode() + raw, hashlib.sha256).hexdigest()
+    exp = hmac.new(secret.encode(), rnd.encode() + raw, hashlib.sha256).hexdigest()
     return hmac.compare_digest(exp, sig.lower())
 
 
@@ -718,7 +851,8 @@ def post(
     silent: bool = False,
     reference_id: str = "",
 ) -> int | None:
-    if not SECRET:
+    secret = talk_bot_secret()
+    if not secret:
         log("missing TALK_BOT_SECRET/APP_SECRET; cannot post bot message")
         return None
     url = f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v1/bot/{token}/message"
@@ -727,7 +861,7 @@ def post(
 
     def send(include_reply: bool = True) -> int:
         rnd = secrets.token_hex(32)
-        sig = hmac.new(SECRET.encode(), (rnd + message).encode(), hashlib.sha256).hexdigest()
+        sig = hmac.new(secret.encode(), (rnd + message).encode(), hashlib.sha256).hexdigest()
         fields = {"message": message}
         if reference_id:
             fields["referenceId"] = reference_id
@@ -774,14 +908,15 @@ def react(token: str, message_id: int, reaction: str) -> bool:
     """
     token = (token or "").strip()
     reaction = (reaction or "").strip()
-    if not SECRET:
+    secret = talk_bot_secret()
+    if not secret:
         log("missing TALK_BOT_SECRET/APP_SECRET; cannot react to Talk message")
         return False
     if not token or not message_id or message_id <= 0 or not reaction:
         return False
     url = f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v1/bot/{token}/reaction/{message_id}"
     rnd = secrets.token_hex(32)
-    sig = hmac.new(SECRET.encode(), (rnd + reaction).encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(secret.encode(), (rnd + reaction).encode(), hashlib.sha256).hexdigest()
     data = urllib.parse.urlencode({"reaction": reaction}).encode()
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("OCS-APIRequest", "true")
@@ -940,6 +1075,18 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/enabled":
             enabled = urllib.parse.parse_qs(parsed.query).get("enabled", [""])[0]
             log(f"AppAPI enabled state changed: enabled={enabled!r}")
+            if enabled.lower() in {"1", "true", "yes", "on"}:
+                try:
+                    registration = register_appapi_talk_bot()
+                    self._write_json(200, {"error": "", "talk_bot_registered": True, "talk_bot_id": registration.get("id", "")})
+                except Exception as e:
+                    log(f"AppAPI Talk bot registration failed during /enabled: {e!r}")
+                    self._write_json(200, {"error": "", "talk_bot_registered": False, "talk_bot_error": str(e)})
+                return
+            if enabled.lower() in {"0", "false", "no", "off"}:
+                unregistered = unregister_appapi_talk_bot()
+                self._write_json(200, {"error": "", "talk_bot_unregistered": unregistered})
+                return
             self._write_json(200, {"error": ""})
             return
         self.send_response(404)
