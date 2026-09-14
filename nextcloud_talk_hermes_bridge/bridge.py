@@ -251,9 +251,14 @@ def extract(payload: dict) -> dict | None:
     # object content.
     payload_type = payload.get("type")
     actor = payload.get("actor") or {}
-    aid = actor.get("id", "")
-    if "/bot-" in aid or aid.startswith("bots/"):
+    actor_id = str(actor.get("id") or "")
+    if "/bot-" in actor_id or actor_id.startswith("bots/"):
         return None
+    actor_name = str(actor.get("name") or "Talk user")
+    actor_user_id = ""
+    if actor_id.startswith("users/") and len(actor_id.split("/", 1)) == 2:
+        actor_user_id = actor_id.split("/", 1)[1]
+    actor_identity = actor_user_id or actor_id or actor_name
     obj = payload.get("object") or {}
     target = payload.get("target") or {}
     # Accept JSON-content Create events as well as normal Note text. Nextcloud
@@ -340,7 +345,10 @@ def extract(payload: dict) -> dict | None:
         "token": target.get("id", ""),
         "message": msg,
         "message_id": int(obj.get("id", 0) or 0),
-        "actor_name": actor.get("name", "User"),
+        "actor_name": actor_name,
+        "actor_id": actor_id,
+        "actor_user_id": actor_user_id,
+        "actor_identity": actor_identity,
     }
 
 
@@ -694,16 +702,31 @@ Bridge operating rules:
 """.strip()
 
 
-def build_prompt(message: str, actor: str, context_packet: str) -> str:
+def build_prompt(
+    message: str,
+    actor: str,
+    context_packet: str,
+    actor_identity: str = "",
+    actor_user_id: str = "",
+    actor_id: str = "",
+) -> str:
     """Build the per-turn user payload passed to `hermes chat -q`.
 
     By default this contains only transient per-turn context and the current Talk
     message, so resumed Hermes sessions do not persist another copy of the
     stable bridge persona on every message.
     """
+    identity_parts = []
+    if actor_identity:
+        identity_parts.append(f"stable_id={actor_identity}")
+    if actor_user_id:
+        identity_parts.append(f"user_id={actor_user_id}")
+    if actor_id:
+        identity_parts.append(f"raw_actor_id={actor_id}")
+    identity_line = f"Talk user identity: {'; '.join(identity_parts)}\n" if identity_parts else ""
     per_turn = f"""{context_packet}
 
-{actor} wrote in Nextcloud Talk:
+{identity_line}{actor} wrote in Nextcloud Talk:
 {message}
 """.strip()
     if _persona_system_prompt_enabled():
@@ -711,11 +734,20 @@ def build_prompt(message: str, actor: str, context_packet: str) -> str:
     return (build_persona_system_prompt() + "\n\n" + per_turn).strip() + "\n"
 
 
-def ask(message: str, actor: str, context_packet: str = "", token: str = "", reply_to: int = 0) -> str:
+def ask(
+    message: str,
+    actor: str,
+    context_packet: str = "",
+    token: str = "",
+    reply_to: int = 0,
+    actor_identity: str = "",
+    actor_user_id: str = "",
+    actor_id: str = "",
+) -> str:
     extra_context = build_nextcloud_ai_context(message, token=token, actor=actor)
     if extra_context:
         context_packet = (context_packet + "\n\n" + extra_context).strip()
-    prompt = build_prompt(message, actor, context_packet)
+    prompt = build_prompt(message, actor, context_packet, actor_identity, actor_user_id, actor_id)
     cmd = [
         HERMES,
         "--profile",
@@ -978,7 +1010,14 @@ def handle(ev: dict) -> None:
         post(ev["token"], command_reply, ev["message_id"])
         return
     append_turn(ev["token"], "user", ev["actor_name"], ev["message"], ev["message_id"], app_name=APP_NAME)
-    sync_local_memory_message(ev["token"], "user", ev["actor_name"], ev["message"], namespace=namespace, message_id=ev["message_id"])
+    sync_local_memory_message(
+        ev["token"],
+        "user",
+        ev.get("actor_identity") or ev["actor_name"],
+        ev["message"],
+        namespace=namespace,
+        message_id=ev["message_id"],
+    )
     context_packet = build_context_packet(
         ev["token"],
         APP_NAME,
@@ -987,7 +1026,24 @@ def handle(ev: dict) -> None:
         namespace=namespace,
         include_history=_include_talk_history_in_context(),
     )
-    reply = ask(ev["message"], ev["actor_name"], context_packet, ev["token"], ev["message_id"])
+    if ev.get("actor_identity"):
+        identity_bits = [f"stable_id={ev.get('actor_identity')}"]
+        if ev.get("actor_user_id"):
+            identity_bits.append(f"user_id={ev.get('actor_user_id')}")
+        if ev.get("actor_id"):
+            identity_bits.append(f"raw_actor_id={ev.get('actor_id')}")
+        identity_bits.append(f"display_name={ev.get('actor_name')}")
+        context_packet = (context_packet + "\n\nOriginating Talk user identity: " + "; ".join(identity_bits) + ".").strip()
+    reply = ask(
+        ev["message"],
+        ev["actor_name"],
+        context_packet,
+        ev["token"],
+        ev["message_id"],
+        ev.get("actor_identity", ""),
+        ev.get("actor_user_id", ""),
+        ev.get("actor_id", ""),
+    )
     append_turn(ev["token"], "assistant", ASSISTANT_NAME, reply, 0, app_name=APP_NAME)
     sync_local_memory_message(ev["token"], "assistant", ASSISTANT_NAME, reply, namespace=namespace)
     post(ev["token"], reply, ev["message_id"])
