@@ -33,6 +33,9 @@ class BridgeExtractTests(unittest.TestCase):
                 "message": "Hello",
                 "message_id": 42,
                 "actor_name": "Alex",
+                "actor_id": "users/alex",
+                "actor_user_id": "alex",
+                "actor_identity": "alex",
             },
         )
 
@@ -49,7 +52,10 @@ class BridgeExtractTests(unittest.TestCase):
             actor={"id": "users/alex"},
         )
         ev = bridge.extract(payload)
-        self.assertEqual(ev["actor_name"], "User")
+        self.assertEqual(ev["actor_name"], "Talk user")
+        self.assertEqual(ev["actor_id"], "users/alex")
+        self.assertEqual(ev["actor_user_id"], "alex")
+        self.assertEqual(ev["actor_identity"], "alex")
         self.assertIn("voice-message", ev["message"])
         self.assertIn("audio/ogg", ev["message"])
 
