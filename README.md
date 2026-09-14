@@ -27,6 +27,7 @@ It receives signed Nextcloud Talk bot webhook events, runs `hermes chat -q` with
 - Python 3.11+
 - A working Hermes Agent CLI (`hermes`)
 - A Nextcloud server with the Talk app and Talk bot webhook support
+- For AppAPI ExApp auto-provisioning: Nextcloud Talk/Spreed **24.0.5 or newer**
 - A public or reverse-proxied HTTPS endpoint pointing to this bridge's `/hook` path
 
 ## Install
@@ -43,7 +44,13 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-TALK_BOT_SECRET=replace-with-nextcloud-talk-bot-secret
+# AppAPI ExApp installs on Nextcloud Talk 24.0.5 or newer auto-provision
+# the Talk bot during /enabled. TALK_BOT_SECRET is only needed for legacy
+# manual Talk bot registrations.
+# TALK_BOT_SECRET=replace-with-nextcloud-talk-bot-secret
+TALK_BOT_ROUTE=/hook
+TALK_BOT_NAME=Hermes Talk Assistant
+TALK_BOT_DESCRIPTION=Hermes Agent bridge for Nextcloud Talk
 TALK_DELIVER_SECRET=replace-with-bridge-delivery-api-key
 NEXTCLOUD_URL=https://nextcloud.example.com
 TALK_BRIDGE_PORT=8788
@@ -90,6 +97,22 @@ Adjust `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` if you install els
 
 ## Nextcloud Talk bot setup
 
+### AppAPI ExApp auto-provisioning
+
+On Nextcloud Talk/Spreed **24.0.5 or newer**, AppAPI ExApp installs can provision the Talk bot automatically. When AppAPI calls this bridge's `/enabled` lifecycle hook with `enabled=1`, the bridge calls AppAPI's own `registerExAppTalkBot()` OCS route with:
+
+- Bot name: `TALK_BOT_NAME`, default `ASSISTANT_NAME`
+- Bot route: `TALK_BOT_ROUTE`, default `/hook`
+- Description: `TALK_BOT_DESCRIPTION`
+
+AppAPI registers the Talk bot, creates the AppAPI proxy URL for the ExApp route, mints the Talk bot secret, and returns the bot id and secret. The bridge stores that generated secret in persistent state and uses it for signed Talk webhook validation and outgoing bot messages. This removes the normal manual admin-panel step of creating a Talk bot and copying a secret into `TALK_BOT_SECRET`.
+
+When AppAPI calls `/enabled` with `enabled=0`, the bridge calls `unregisterExAppTalkBot()` for the configured route and clears the stored registration state.
+
+`TALK_BOT_SECRET` is still supported as a legacy fallback for manual/non-AppAPI deployments, but it is not required for the AppAPI auto-provisioned path.
+
+### Legacy/manual registration
+
 Exact admin screens vary by Nextcloud/Talk version, but the bridge expects:
 
 - Webhook URL: `https://your-public-host.example.com/hook`
@@ -108,7 +131,11 @@ The bridge handles:
 ## Important configuration
 
 - `HERMES_PROFILE`: Hermes profile to run, such as `default` or a dedicated assistant profile.
-- `TALK_DELIVER_SECRET`: separate bearer token for proactive outbound delivery calls to `/deliver`. Keep this distinct from `TALK_BOT_SECRET`.
+- `TALK_BOT_ROUTE`: ExApp Talk bot route registered through AppAPI. Defaults to `/hook`.
+- `TALK_BOT_NAME`: display name used when auto-registering the Talk bot through AppAPI. Defaults to `ASSISTANT_NAME`.
+- `TALK_BOT_DESCRIPTION`: description used when auto-registering the Talk bot through AppAPI.
+- `TALK_BOT_SECRET`: legacy/manual Talk bot shared secret fallback. AppAPI ExApp installs on Talk/Spreed 24.0.5 or newer generate and persist this automatically instead.
+- `TALK_DELIVER_SECRET`: separate bearer token for proactive outbound delivery calls to `/deliver`. Keep this distinct from any Talk bot secret.
 - `HERMES_TOOLSETS`: comma-separated toolsets exposed to Hermes.
 - `HERMES_SKILLS`: comma-separated skills to pre-load.
 - `TALK_BRIDGE_SKILL_STATUS`: `1`/`0` toggle. When enabled, the bridge prompt tells Hermes to explicitly report any skill creation, patch, edit, or deletion in its final Talk reply, including the skill names changed.
