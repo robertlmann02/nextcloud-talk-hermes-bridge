@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.12
+
+- Make production-safe Talk defaults match the managed bot fleet rollout: 3-minute soft timeout, 60-minute hard timeout, 3-minute background heartbeat, 5-minute fail-closed approval timeout, and a `👀` received/working reaction.
+- Enable Talk approval prompts in the example environment so protected Hermes actions can be approved or denied from the originating Talk room by default.
+- Document the visible Nextcloud Talk working indicator as the recommended default instead of leaving received reactions disabled.
+
 ## 1.0.11
 
 - Harden Talk bridge command handling so `/help`, `/status`, `/memory`, `/tools`, `/reset`, `/version`, and `/queue` still work when Talk clients wrap slash text in markup or when a client/server intercepts leading slash syntax; users can now use `!status`, `bridge status`, or the bare command word as fallbacks.

@@ -139,10 +139,11 @@ The bridge handles:
 - `HERMES_TOOLSETS`: comma-separated toolsets exposed to Hermes.
 - `HERMES_SKILLS`: comma-separated skills to pre-load.
 - `TALK_BRIDGE_SKILL_STATUS`: `1`/`0` toggle. When enabled, the bridge prompt tells Hermes to explicitly report any skill creation, patch, edit, or deletion in its final Talk reply, including the skill names changed.
-- `TALK_RECEIVED_REACTION`: optional emoji reaction, for example `👀`, that the bridge adds to an inbound Talk message before Hermes starts working. Leave unset to disable. Reaction failures are logged but never block the final reply or the existing `Working.` / background heartbeat messages.
+- `TALK_RECEIVED_REACTION`: optional emoji reaction, recommended `👀`, that the bridge adds to an inbound Talk message before Hermes starts working. Reaction failures are logged but never block the final reply or background heartbeat messages.
 - `HERMES_YOLO`: `1` enables non-interactive tool execution. Set to `0` if you want a safer/default Hermes mode.
-- `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting.
-- `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process.
+- `TALK_BRIDGE_SOFT_TIMEOUT`: seconds before the bridge posts a “still working” notice and keeps waiting. Recommended production default: `180`.
+- `TALK_BRIDGE_HARD_TIMEOUT`: maximum runtime before stopping the Hermes process. Recommended production default: `3600`.
+- `TALK_BRIDGE_BACKGROUND_HEARTBEAT`: seconds between long-running background heartbeat messages. Recommended production default: `180`.
 - `TALK_CONTEXT_DIR`: where room context JSONL files are stored. The generated context packet includes a priority rule: newest user message first, room state lower priority, and source/session/git history for “what was there before” requests.
 - `TALK_CONTEXT_INCLUDE_HISTORY`: optional `1`/`0` override for inlining bridge-managed recent Talk turns into each Hermes `-q` payload. Defaults to `1` for one-shot sessions and `0` when `TALK_HERMES_RESUME_SESSION`, `HERMES_RESUME_SESSION`, or `HERMES_SESSION_ID` is set, because Hermes resume already replays session history.
 - `TALK_PERSONA_SYSTEM_PROMPT`: `1` by default, which sends stable bridge persona/rules through Hermes' non-persisted `HERMES_EPHEMERAL_SYSTEM_PROMPT` instead of embedding them in every persisted user prompt. Set to `0` only for older Hermes builds that do not support the ephemeral prompt environment variable.
